@@ -33,16 +33,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($ok) {
+                $normalizedRole = normalize_role_name($u['role']);
                 $_SESSION['user'] = [
                     'id'        => (int)$u['id'],
                     'name'      => $u['name'],
                     'email'     => $u['email'],
                     'username'  => $u['username'],
-                    'role'      => $u['role'],
+                    'role'      => $normalizedRole,
                     'branch_id' => $u['branch_id'],
                 ];
                 log_activity($db, $u['name'], 'System', 'Signed in');
-                redirect($u['role'] === 'Super Admin' ? 'superadmin.php' : 'dashboard.php');
+                redirect(in_array($normalizedRole, ['Super Admin', 'Admin'], true) ? 'superadmin.php' : 'dashboard.php');
             }
         }
         $error = 'Invalid username or password.';
@@ -55,12 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartStock — Sign in</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'DM Sans',sans-serif;background:#0a0a0a;color:#f5f2ed;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    body{font-family:'Plus Jakarta Sans',sans-serif;background:#0a0a0a;color:#f5f2ed;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
   .card{width:100%;max-width:420px;background:#141414;border:1px solid #2a2a2a;border-radius:20px;padding:32px}
-  .logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin-bottom:6px}
+    .logo{font-family:'Sora',sans-serif;font-size:22px;font-weight:700;margin-bottom:6px}
   .logo span{color:#c8ff00}
   .sub{font-size:13px;color:#6b6860;margin-bottom:24px}
   label{font-size:12px;color:#9a978d;display:block;margin-bottom:6px;margin-top:14px}
@@ -74,6 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   .back{display:block;text-align:center;margin-top:16px;font-size:12px;color:#6b6860;text-decoration:none}
   .back:hover{color:#f5f2ed}
 </style>
+<link rel="stylesheet" href="system-polish.css?v=1">
 </head>
 <body>
   <form class="card" method="post">
@@ -93,7 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="hint">
       <strong style="color:#c8ff00">Demo accounts</strong> (password: <code>password123</code>)<br>
       • <code>admin</code> — Super Admin<br>
-      • <code>jfbusel</code> — Branch Admin<br>
+            • <code>ceo</code> — Admin<br>
+            • <code>jfbusel</code> — Supervisor<br>
       • <code>adex</code> — Staff
     </div>
 

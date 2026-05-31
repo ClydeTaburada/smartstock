@@ -18,7 +18,8 @@ foreach ($allowedBranches as $branchRow) {
 }
 
 $requestedBranchId = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : 0;
-if (is_super_admin($user)) {
+$canSelectBranch = is_executive_user($user);
+if ($canSelectBranch) {
     $selectedBranchId = $requestedBranchId > 0 && isset($branchMap[$requestedBranchId]) ? $requestedBranchId : 0;
 } else {
     $selectedBranchId = current_branch_id($user) ?? 0;
@@ -27,7 +28,7 @@ if (is_super_admin($user)) {
 $selectedBranchName = $selectedBranchId > 0 && isset($branchMap[$selectedBranchId])
     ? str_replace('RF Chein - ', '', (string)$branchMap[$selectedBranchId]['name'])
     : 'All branches';
-$canReply = in_array($user['role'], ['Super Admin', 'Branch Admin', 'Staff'], true);
+$canReply = has_role(['Super Admin', 'Admin', 'Supervisor', 'Staff'], $user);
 
 $scopeSql = $selectedBranchId > 0 ? ' WHERE i.branch_id = ?' : '';
 $scopeParams = $selectedBranchId > 0 ? [$selectedBranchId] : [];
@@ -65,8 +66,8 @@ foreach ($inquiries as $inquiry) {
     $stats[$inquiry['status']] = ($stats[$inquiry['status']] ?? 0) + 1;
 }
 
-$flash = flash_get(is_super_admin($user) ? 'superadmin' : 'dashboard');
-$backHref = is_super_admin($user) ? 'superadmin.php' : 'dashboard.php';
+$flash = flash_get($canSelectBranch ? 'superadmin' : 'dashboard');
+$backHref = $canSelectBranch ? 'superadmin.php' : 'dashboard.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -74,18 +75,21 @@ $backHref = is_super_admin($user) ? 'superadmin.php' : 'dashboard.php';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartStock · Inquiries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <style>
-  :root{--bg:#f5f7fb;--card:#fff;--text:#111827;--muted:#6b7280;--border:#dbe3ef;--accent:#2563eb;--good:#0f9d58;--warn:#d97706;--bad:#dc2626}
-  *{box-sizing:border-box} body{margin:0;font-family:Arial,sans-serif;background:linear-gradient(180deg,#eff6ff 0,#f5f7fb 26%);color:var(--text)}
+  :root{--bg:#ebeae4;--card:rgba(255,255,255,.92);--text:#111827;--muted:#5b6057;--border:#e3e2da;--accent:#0f766e;--good:#0f9d58;--warn:#d97706;--bad:#dc2626;--display:'Sora',sans-serif;--body:'Plus Jakarta Sans',sans-serif}
+  *{box-sizing:border-box} body{margin:0;font-family:var(--body);background:radial-gradient(circle at top left,#dff2e7 0,#f7f4ec 32%,#ebeae4 100%);color:var(--text)}
   .wrap{max-width:1240px;margin:0 auto;padding:28px 22px 48px}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:20px}
-  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:700}.title{font-size:34px;font-weight:800;margin:6px 0}.sub{color:var(--muted);max-width:760px;line-height:1.6}
-  .back{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.8);color:var(--text);text-decoration:none;font-size:14px}
+  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:800}.title{font-size:34px;font-weight:700;font-family:var(--display);margin:6px 0}.sub{color:var(--muted);max-width:760px;line-height:1.6}
+  .back{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.78);color:var(--text);text-decoration:none;font-size:14px;backdrop-filter:blur(16px)}
   .flash{margin:0 0 18px;padding:12px 14px;background:#e9fff3;border:1px solid #bde6cc;color:#0f6e56;border-radius:12px}
   .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}.toolbar form{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   select,input,textarea{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:12px;font:inherit;background:#fff;color:var(--text)} textarea{min-height:94px;resize:vertical}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px}.stat .n{font-size:28px;font-weight:800}.stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-  .stack{display:grid;gap:16px}.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:18px}.head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}.meta{font-size:13px;color:var(--muted);line-height:1.6}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}.stat .n{font-size:28px;font-weight:800}.stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .stack{display:grid;gap:16px}.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:18px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}.head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}.meta{font-size:13px;color:var(--muted);line-height:1.6}
   .pill{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700}.new{background:#dbeafe;color:#1d4ed8}.contacted{background:#fff7ed;color:#9a3412}.resolved{background:#dcfce7;color:#166534}.closed{background:#f3f4f6;color:#4b5563}
   .thread{display:grid;gap:10px;margin-top:14px}.message{border:1px solid #edf1f6;border-radius:14px;padding:12px 14px;background:#fbfdff}.message.staff{border-color:#dbeafe;background:#eff6ff}.message-meta{font-size:12px;color:var(--muted);margin-bottom:4px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
   .update-form{margin-top:14px;padding-top:14px;border-top:1px solid #edf1f6}.grid2{display:grid;grid-template-columns:160px 1fr;gap:12px;align-items:start}.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:#fff;cursor:pointer;font:inherit;color:var(--text)} .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -93,6 +97,7 @@ $backHref = is_super_admin($user) ? 'superadmin.php' : 'dashboard.php';
   @media (max-width:980px){.stats{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
   @media (max-width:640px){.stats{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="system-polish.css?v=1">
 </head>
 <body>
 <div class="wrap">
@@ -109,7 +114,7 @@ $backHref = is_super_admin($user) ? 'superadmin.php' : 'dashboard.php';
 
   <div class="toolbar">
     <div class="tiny">Viewing: <strong><?= e($selectedBranchName) ?></strong></div>
-    <?php if (is_super_admin($user)): ?>
+    <?php if ($canSelectBranch): ?>
       <form method="get">
         <select name="branch_id" onchange="this.form.submit()">
           <option value="0">All branches</option>

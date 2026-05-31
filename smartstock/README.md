@@ -8,7 +8,7 @@ static HTML mockups into a database-driven PHP app running on XAMPP.
 1. **Put the folder in XAMPP**: `c:\xampp\htdocs\smartstock` (already done).
 2. **Start Apache + MySQL** from the XAMPP control panel.
 3. **Run the one-click installer**: open <http://localhost/smartstock/setup.php>.
-   The page creates the `smartstock` database, all tables, and seed data in one click.
+   The page creates the `smartstock` database, all tables, and a minimal test seed in one click.
    _(Alternative: import `database.sql` manually via <http://localhost/phpmyadmin>.)_
 4. **Delete `setup.php`** once it reports success (optional but recommended).
 5. **Open the app**: <http://localhost/smartstock/>
@@ -18,13 +18,13 @@ static HTML mockups into a database-driven PHP app running on XAMPP.
 | Username     | Role          |
 |--------------|---------------|
 | `admin`      | Super Admin   |
-| `jfbusel`    | Branch Admin  |
-| `jmjarino`   | Branch Admin  |
-| `amobediente`| Branch Admin  |
+| `ceo`        | Admin         |
+| `jfbusel`    | Supervisor    |
 | `adex`       | Staff         |
-| `rflores`    | Viewer        |
 
 First sign-in auto-upgrades the stored password to a bcrypt hash.
+
+The SQL seed is intentionally clean: it keeps only branch scaffolding plus these four test credentials. Inventory, sales, inquiries, transfers, and logs start empty.
 
 ## Pages
 
@@ -61,7 +61,7 @@ smartstock/
 ## Database schema
 
 - **branches** — stores RF Chein branch locations
-- **users** — staff accounts with roles: `Super Admin`, `Branch Admin`, `Staff`, `Viewer`
+- **users** — staff accounts with roles: `Super Admin`, `Admin`, `Supervisor`, `Staff` (legacy `Viewer` remains compatible)
 - **phones** — device inventory (brand, model, condition, price, stock, branch)
 - **sales** — transactions (auto-decrements `phones.stock`)
 - **activity_logs** — audit trail written by every action handler

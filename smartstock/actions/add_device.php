@@ -1,10 +1,10 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin','Branch Admin','Staff']);
+require_role(['Super Admin', 'Admin', 'Supervisor']);
 
 $user = current_user();
-$back = is_super_admin($user) ? '../superadmin.php#devices' : '../dashboard.php';
-$flashKey = is_super_admin($user) ? 'superadmin' : 'dashboard';
+$back = is_executive_user($user) ? '../superadmin.php#devices' : '../dashboard.php';
+$flashKey = is_executive_user($user) ? 'superadmin' : 'dashboard';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect($back); }
 

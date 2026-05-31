@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin']);
+require_role(['Super Admin', 'Admin']);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect('../superadmin.php'); }
 

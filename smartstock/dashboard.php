@@ -3,7 +3,14 @@ require_once __DIR__ . '/includes/helpers.php';
 require_login();
 
 $user = current_user();
+if (is_admin_user($user)) {
+  redirect('superadmin.php');
+}
 ensure_branch_assigned($user);
+
+$roleName = role_label($user['role']);
+$isSupervisor = is_supervisor_user($user);
+$isStaff = is_staff_user($user);
 
 $fetchScalar = static function (PDO $db, $sql, array $params = []) {
   $stmt = $db->prepare($sql);
@@ -42,10 +49,12 @@ if (is_super_admin($user)) {
 
 $selectedBranch = $selectedBranchId > 0 ? ($allowedBranchMap[$selectedBranchId] ?? null) : null;
 $selectedBranchName = $selectedBranch ? $shortBranchName($selectedBranch['name']) : 'All branches';
-$canManageStock = in_array($user['role'], ['Super Admin', 'Branch Admin', 'Staff'], true);
-$canApproveTransfers = in_array($user['role'], ['Super Admin', 'Branch Admin'], true);
-$canManageTransferStatus = is_super_admin($user);
-$canRecordSales = in_array($user['role'], ['Super Admin', 'Branch Admin', 'Staff'], true);
+$canManageStock = $isSupervisor;
+$canViewTransfers = $isSupervisor;
+$canViewInquiries = $isSupervisor || $isStaff;
+$canViewFlashSales = $isSupervisor;
+$canManageTransferStatus = can_manage_transfer_status($user);
+$canRecordSales = $isSupervisor || $isStaff;
 
 $branchPhoneSql = $selectedBranchId > 0 ? ' AND p.branch_id = ?' : '';
 $branchPhoneParams = $selectedBranchId > 0 ? [$selectedBranchId] : [];
@@ -367,40 +376,44 @@ $highMargin = array_slice($highMargin, 0, 5);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartStock — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css">
 <style>
   :root {
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --color-background-primary: #ffffff;
-    --color-background-secondary: #f5f6f8;
-    --color-background-tertiary: #f9fafb;
+    --font-sans: 'Plus Jakarta Sans', sans-serif;
+    --font-display: 'Sora', sans-serif;
+    --color-background-primary: rgba(255,255,255,0.92);
+    --color-background-secondary: #f0f1ed;
+    --color-background-tertiary: #ebeae4;
     --color-background-success: #E1F5EE;
     --color-background-danger:  #FCEBEB;
-    --color-border-secondary:   #d7d9e0;
-    --color-border-tertiary:    #e3e5ea;
+    --color-border-secondary:   #d6d7cf;
+    --color-border-tertiary:    #e3e2da;
     --color-border-danger:      #F2B4B4;
     --color-text-primary:       #16181d;
-    --color-text-secondary:     #5b6170;
-    --color-text-tertiary:      #868c99;
+    --color-text-secondary:     #5b6057;
+    --color-text-tertiary:      #82877d;
     --color-text-success:       #0F6E56;
     --color-text-danger:        #A32D2D;
-    --border-radius-md: 8px;
-    --border-radius-lg: 12px;
+    --border-radius-md: 12px;
+    --border-radius-lg: 20px;
   }
   html,body{margin:0;padding:0;background:var(--color-background-tertiary)}
   .sr-only{position:absolute;left:-9999px}
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)}
+  body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary);background:radial-gradient(circle at top left,#dff2e7 0,#f7f4ec 32%,#ebeae4 100%)}
   .app{display:flex;min-height:100vh}
-  /* Dark sidebar (matches Analytics reference design) */
-  .sidebar{width:200px;flex-shrink:0;padding:16px 0;background:#0E1116;color:#cfd3dc}
-  .sidebar-logo{padding:0 16px 16px;font-size:16px;font-weight:600;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:8px;color:#ffffff}
+  .sidebar{width:228px;flex-shrink:0;padding:22px 0;background:linear-gradient(180deg,#101318 0,#171d24 100%);color:#cfd3dc;box-shadow:24px 0 60px -44px rgba(15,23,42,.8)}
+  .sidebar-logo{padding:0 18px 18px;font-size:22px;font-family:var(--font-display);font-weight:700;letter-spacing:-.04em;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px;color:#ffffff}
   .sidebar-logo span{color:#1D9E75}
-  .sidebar-user{padding:8px 16px 12px;font-size:12px;color:#9ca3af}
-  .sidebar-user strong{color:#ffffff;display:block;font-size:13px;font-weight:600}
-  .nav-item{display:flex;align-items:center;gap:8px;padding:9px 16px;cursor:pointer;color:#9ca3af;font-size:13px;transition:background .15s,color .15s;text-decoration:none}
+  .sidebar-user{padding:10px 18px 14px;font-size:12px;color:#94a3b8}
+  .sidebar-user strong{color:#ffffff;display:block;font-size:15px;font-weight:700}
+  .role-chip{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 10px;border-radius:999px;background:rgba(20,184,166,.16);color:#99f6e4;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .nav-item{display:flex;align-items:center;gap:8px;padding:11px 18px;cursor:pointer;color:#9ca3af;font-size:13px;transition:background .15s,color .15s;text-decoration:none;border-right:2px solid transparent;border-radius:14px 0 0 14px;margin-left:10px}
   .nav-item:hover{background:rgba(255,255,255,.04);color:#ffffff}
-  .nav-item.active{background:rgba(29,158,117,.14);color:#35c490;font-weight:500;border-right:2px solid #1D9E75}
+  .nav-item.active{background:rgba(29,158,117,.16);color:#c8fff1;font-weight:700;border-right-color:#34d399}
   .nav-item i{font-size:16px}
   /* Mini bar-chart for Analytics */
   .mini-chart{display:flex;align-items:flex-end;gap:10px;height:150px;padding:6px 0 0}
@@ -411,25 +424,25 @@ $highMargin = array_slice($highMargin, 0, 5);
   .st-cell{display:flex;align-items:center;gap:8px;min-width:110px}
   .st-cell .bar-track{flex:1;max-width:70px;height:6px}
   .main{flex:1;display:flex;flex-direction:column}
-  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary)}
-  .topbar h1{font-size:15px;font-weight:500}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--color-border-tertiary);background:rgba(255,255,255,.78);backdrop-filter:blur(16px)}
+  .topbar h1{font-size:28px;font-weight:700;font-family:var(--font-display);letter-spacing:-.04em}
   .topbar-actions{display:flex;gap:8px;align-items:center}
-  .badge{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:500;background:var(--color-background-success);color:var(--color-text-success)}
+  .badge{font-size:11px;padding:5px 10px;border-radius:20px;font-weight:700;background:var(--color-background-success);color:var(--color-text-success);text-transform:uppercase;letter-spacing:.04em}
   .notif-link{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);text-decoration:none}
   .notif-link.has-items{background:#EEF6F2;border-color:#B6E4D3;color:#0F6E56}
   .notif-count{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#E05151;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
-  .content{padding:20px;flex:1;overflow-y:auto}
+  .content{padding:24px;flex:1;overflow-y:auto}
   .page{display:none}.page.active{display:block}
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
-  .metric-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px}
-  .metric-label{font-size:12px;color:var(--color-text-secondary);margin-bottom:6px;display:flex;align-items:center;gap:6px}
-  .metric-value{font-size:22px;font-weight:500}
+  .metric-card{background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px;box-shadow:0 24px 60px -44px rgba(15,23,42,.28)}
+  .metric-label{font-size:11px;color:var(--color-text-secondary);margin-bottom:8px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.08em;font-weight:800}
+  .metric-value{font-size:28px;font-weight:700}
   .metric-change{font-size:11px;margin-top:4px}
   .metric-change.up{color:var(--color-text-success)}
   .metric-change.down{color:var(--color-text-danger)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-  .card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px}
-  .card-title{font-size:13px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+  .card{background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:18px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}
+  .card-title{font-size:14px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:6px}
   .card-title i{color:#1D9E75}
   .bar-group{margin-bottom:10px}
   .bar-label{display:flex;justify-content:space-between;font-size:12px;color:var(--color-text-secondary);margin-bottom:4px}
@@ -444,10 +457,10 @@ $highMargin = array_slice($highMargin, 0, 5);
   .status-pill.in-stock{background:#E1F5EE;color:#0F6E56}
   .status-pill.low{background:#FAEEDA;color:#854F0B}
   .status-pill.out{background:#FCEBEB;color:#A32D2D}
-  .btn{padding:7px 14px;font-size:13px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);cursor:pointer;background:var(--color-background-primary);color:var(--color-text-primary);display:inline-flex;align-items:center;gap:6px;transition:background .15s;text-decoration:none}
+  .btn{padding:9px 14px;font-size:13px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);cursor:pointer;background:var(--color-background-primary);color:var(--color-text-primary);display:inline-flex;align-items:center;gap:6px;transition:background .15s,text-decoration:none}
   .btn:hover{background:var(--color-background-secondary)}
-  .btn-primary{background:#1D9E75;color:white;border-color:#1D9E75}
-  .btn-primary:hover{background:#0F6E56}
+  .btn-primary{background:#0F766E;color:white;border-color:#0F766E}
+  .btn-primary:hover{background:#0b5d57}
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;align-items:center;justify-content:center}
   .modal-overlay.open{display:flex}
   .modal{background:var(--color-background-primary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-tertiary);padding:24px;width:500px;max-width:92%;box-shadow:0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04)}
@@ -526,10 +539,15 @@ $highMargin = array_slice($highMargin, 0, 5);
   .fg label{font-size:12px;color:var(--color-text-secondary)}
   .fg input,.fg select,textarea{padding:10px 12px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:13px;background:var(--color-background-primary);color:var(--color-text-primary);font-family:inherit}
   .fg input:focus,.fg select:focus,textarea:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.1)}
+  .product-cell{display:flex;align-items:center;gap:12px}
+  .product-thumb{width:48px;height:48px;border-radius:14px;object-fit:cover;border:1px solid var(--color-border-tertiary);background:#f7f7f2;flex-shrink:0}
+  .product-thumb.placeholder{display:inline-flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);font-size:18px}
+  .product-cell strong{display:block;font-size:13px}
   textarea{min-height:92px;resize:vertical}
   @media (max-width: 1100px){.metrics,.dss-grid,.profile-grid,.abc-summary{grid-template-columns:repeat(2,1fr)}.grid2,.form-grid,.form-grid-3{grid-template-columns:1fr}}
   @media (max-width: 760px){.app{display:block}.sidebar{width:auto}.topbar{flex-direction:column;align-items:flex-start;gap:10px}.topbar-actions{flex-wrap:wrap}.metrics,.dss-grid,.profile-grid,.abc-summary{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="system-polish.css?v=1">
 </head>
 <body>
 
@@ -538,18 +556,24 @@ $highMargin = array_slice($highMargin, 0, 5);
     <div class="sidebar-logo"><span>Smart</span>Stock</div>
     <div class="sidebar-user">
       Signed in as<br><strong><?= e($user['name']) ?></strong>
-      <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px"><?= e($user['role']) ?></div>
+      <div class="role-chip"><i class="ti ti-user-star" style="font-size:12px"></i> <?= e($roleName) ?></div>
     </div>
-    <div class="nav-item active" data-page="dashboard" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
-    <div class="nav-item" data-page="inventory" onclick="nav('inventory',this)"><i class="ti ti-package"></i> Inventory</div>
-    <div class="nav-item" data-page="sales" onclick="nav('sales',this)"><i class="ti ti-receipt"></i> Sales</div>
-    <div class="nav-item" data-page="transfers" onclick="nav('transfers',this)"><i class="ti ti-arrows-transfer-up-down"></i> Transfers</div>
-    <div class="nav-item" data-page="analytics" onclick="nav('analytics',this)"><i class="ti ti-chart-bar"></i> Analytics</div>
-    <div class="nav-item" data-page="decisions" onclick="nav('decisions',this)"><i class="ti ti-bulb"></i> Decision support</div>
-    <?php if (in_array($user['role'], ['Super Admin', 'Branch Admin'], true)): ?>
+    <div class="nav-item active" data-page="dashboard" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i> Overview</div>
+    <?php if ($canManageStock): ?>
+      <div class="nav-item" data-page="inventory" onclick="nav('inventory',this)"><i class="ti ti-package"></i> Inventory</div>
+    <?php endif; ?>
+    <?php if ($canRecordSales): ?>
+      <div class="nav-item" data-page="sales" onclick="nav('sales',this)"><i class="ti ti-receipt"></i> Sales</div>
+    <?php endif; ?>
+    <?php if ($canViewTransfers): ?>
+      <div class="nav-item" data-page="transfers" onclick="nav('transfers',this)"><i class="ti ti-arrows-transfer-up-down"></i> Transfers</div>
+    <?php endif; ?>
+    <?php if ($canViewFlashSales): ?>
       <a class="nav-item" href="flash_sales.php"><i class="ti ti-bolt"></i> Flash sales</a>
     <?php endif; ?>
-    <a class="nav-item" href="inquiries.php"><i class="ti ti-messages"></i> Inquiries</a>
+    <?php if ($canViewInquiries): ?>
+      <a class="nav-item" href="inquiries.php"><i class="ti ti-messages"></i> Inquiries</a>
+    <?php endif; ?>
     <?php if ($user['role'] === 'Super Admin'): ?>
       <a class="nav-item" href="superadmin.php" style="color:#35c490"><i class="ti ti-shield-check"></i> Super Admin</a>
     <?php endif; ?>
@@ -558,7 +582,7 @@ $highMargin = array_slice($highMargin, 0, 5);
 
   <div class="main">
     <div class="topbar">
-      <h1 id="page-title">Dashboard</h1>
+      <h1 id="page-title">Overview</h1>
       <div class="topbar-actions">
         <div class="branch-switcher">
           <?php if (is_super_admin($user)): ?>
@@ -611,7 +635,7 @@ $highMargin = array_slice($highMargin, 0, 5);
             <div class="metric-label"><i class="ti ti-package"></i> Units in Stock</div>
             <div class="metric-value"><?= $unitsInStock ?></div>
             <div class="metric-change <?= $lowStockCount ? 'down' : 'up' ?>">
-              <?= $lowStockCount ? '↓ ' . $lowStockCount . ' low-stock items' : 'All healthy' ?>
+                <?= $lowStockCount ? '↓ ' . $lowStockCount . ' low-stock items' : 'Stock sufficient' ?>
             </div>
           </div>
           <div class="metric-card">
@@ -687,7 +711,7 @@ $highMargin = array_slice($highMargin, 0, 5);
           <div class="card-title"><i class="ti ti-alert-triangle"></i> Low stock alerts</div>
           <?php
             $alerts = array_filter($inventory, fn($r) => $r['stock'] <= 3);
-            if (!$alerts): echo '<div style="color:var(--color-text-secondary);font-size:12px">Stock levels are healthy.</div>';
+            if (!$alerts): echo '<div style="color:var(--color-text-secondary);font-size:12px">Stock levels are sufficient.</div>';
             else: foreach ($alerts as $r):
               $danger = ((int)$r['stock'] === 0);
           ?>
@@ -709,15 +733,26 @@ $highMargin = array_slice($highMargin, 0, 5);
         </div>
         <div class="card" style="padding:0">
           <table>
-            <thead><tr><th>Product</th><th>Brand</th><th>Condition</th><th>Storage</th><th>Branch</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead>
+            <thead><tr><th>Product</th><th>Condition</th><th>Storage</th><th>Branch</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead>
             <tbody>
               <?php foreach ($inventory as $r):
                 $status = $r['stock'] == 0 ? 'out' : ($r['stock'] <= 3 ? 'low' : 'in-stock');
-                $statusLabel = $status === 'in-stock' ? 'In stock' : ($status === 'low' ? 'Low stock' : 'Out of stock');
+                $statusLabel = $status === 'in-stock' ? 'Sufficient' : ($status === 'low' ? 'Low stock' : 'Out of stock');
               ?>
                 <tr>
-                  <td><?= e($r['model']) ?></td>
-                  <td><?= e($r['brand']) ?></td>
+                  <td>
+                    <div class="product-cell">
+                      <?php if (!empty($r['image_url'])): ?>
+                        <img src="<?= e($r['image_url']) ?>" alt="<?= e($r['brand'] . ' ' . $r['model']) ?>" class="product-thumb">
+                      <?php else: ?>
+                        <span class="product-thumb placeholder"><i class="ti ti-device-mobile"></i></span>
+                      <?php endif; ?>
+                      <div>
+                        <strong><?= e($r['brand'] . ' ' . $r['model']) ?></strong>
+                        <div class="topbar-note"><?= e($r['color'] ?: 'Catalog item') ?></div>
+                      </div>
+                    </div>
+                  </td>
                   <td><?= e($r['condition']) ?></td>
                   <td><?= e($r['storage']) ?></td>
                   <td style="font-size:12px;color:var(--color-text-secondary)"><?= e(str_replace('RF Chein - ', '', $r['branch_name'] ?? '—')) ?></td>
@@ -870,7 +905,7 @@ $highMargin = array_slice($highMargin, 0, 5);
 
         <div class="card">
           <div class="card-title"><i class="ti ti-truck-delivery"></i> Transfer board</div>
-          <?php if (!$canManageTransferStatus): ?><div class="page-intro" style="margin-bottom:12px">Transfer status changes are handled by the Super Admin. Branches can track the request here.</div><?php endif; ?>
+          <?php if (!$canManageTransferStatus): ?><div class="page-intro" style="margin-bottom:12px">Transfer status changes are handled from the executive board by the Super Admin or CEO. Branches can track the request here.</div><?php endif; ?>
           <div class="transfer-stack">
             <?php foreach ($transfers as $transfer): ?>
               <?php
@@ -1078,7 +1113,7 @@ $highMargin = array_slice($highMargin, 0, 5);
                     <td><?= e($f['name']) ?></td>
                     <td><strong><?= (int)$f['sold'] ?></strong></td>
                     <td><?= (int)$f['stock'] ?></td>
-                    <td><?php if ($f['stock'] <= $f['sold']): ?><span class="prio-pill prio-high">At risk</span><?php else: ?><span class="status-pill in-stock">Healthy</span><?php endif; ?></td>
+                    <td><?php if ($f['stock'] <= $f['sold']): ?><span class="prio-pill prio-high">At risk</span><?php else: ?><span class="status-pill in-stock">Sufficient</span><?php endif; ?></td>
                   </tr>
                 <?php endforeach; ?>
                 <?php if (!$fastMovers): ?><tr><td colspan="4" style="text-align:center;color:var(--color-text-tertiary);padding:24px">No sales in the last 30 days.</td></tr><?php endif; ?>
@@ -1362,7 +1397,7 @@ function nav(page, el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('pg-'+page).classList.add('active');
-  const titles={dashboard:'Dashboard',inventory:'Inventory',sales:'Sales',transfers:'Transfers',analytics:'Analytics',decisions:'Decision support'};
+  const titles={dashboard:'Overview',inventory:'Inventory',sales:'Sales',transfers:'Transfers',analytics:'Analytics',decisions:'Decision support'};
   document.getElementById('page-title').textContent=titles[page];
   window.location.hash = page;
 }

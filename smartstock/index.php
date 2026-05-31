@@ -43,6 +43,8 @@ foreach ($liveFlashSales as $flashSale) {
 $brandCount = (int)$db->query("SELECT COUNT(DISTINCT brand) FROM phones WHERE is_listed = 1")->fetchColumn();
 $totalUnits = array_sum(array_column($phones, 'stock'));
 $brandList  = $db->query("SELECT DISTINCT brand FROM phones WHERE is_listed = 1 ORDER BY brand")->fetchAll(PDO::FETCH_COLUMN);
+$hasCatalog = !empty($phones);
+$hasBrands = !empty($brandList);
 $jsInquiryBranches = array_map(static function ($branch) {
   return [
     'id' => (int)$branch['id'],
@@ -91,9 +93,9 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="RF Chein Gadgets — Premium pre-owned smartphones in Bacolod City. Quality checked. Honest prices. 3 branches, ready stock.">
-<title>RF Chein Gadgets — Premium Pre-Owned Smartphones · Bacolod City</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<meta name="description" content="RF Chein Gadgets - live branch inventory, flash deals, and inquiry chat for Bacolod City shoppers.">
+<title>RF Chein Gadgets - Live Branch Inventory in Bacolod City</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
     --black:#1d1d1f; --black-2:#2c2c2e; --white:#ffffff; --cream:#f5f5f7;
@@ -384,15 +386,16 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
     .inquiry-grid{grid-template-columns:1fr}
   }
 </style>
+<link rel="stylesheet" href="public-storefront.css?v=2">
 </head>
 <body>
 
 <div class="promo-bar">
   <span class="dot"></span>
   <?php if ($liveFlashSales): ?>
-    <strong><?= count($liveFlashSales) ?> live flash deal<?= count($liveFlashSales) === 1 ? '' : 's' ?></strong> · Branch promos are running right now · <a href="#flash-deals">See deals</a>
+    <strong><?= count($liveFlashSales) ?> live flash deal<?= count($liveFlashSales) === 1 ? '' : 's' ?></strong> · Fresh promos are running across the active branches · <a href="#flash-deals">See deals</a>
   <?php else: ?>
-    <strong>Limited offer</strong> · Free battery health check on every phone purchased this month · <a href="#phones">Browse now</a>
+    <strong>RF Chein storefront</strong> · Live inventory, branch pickup, and inquiry chat in one place · <a href="#phones">Browse catalog</a>
   <?php endif; ?>
 </div>
 
@@ -413,18 +416,20 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
 
 <section class="hero">
   <div>
-    <div class="hero-tag">Now serving · Bacolod City</div>
-    <h1>Quality pre-owned phones at <em>honest</em> prices.</h1>
-    <p class="lead">Every device hand-checked, battery-tested, and priced fairly. Walk into any of our 3 Bacolod branches or browse our live stock — what you see is what's on the shelf.</p>
+    <div class="hero-tag"><?= $hasCatalog ? 'Live catalog · Bacolod City' : 'Storefront ready · Bacolod City' ?></div>
+    <h1><?= $hasCatalog ? 'Phones that feel <em>well chosen</em>, not guessed at.' : 'A cleaner storefront, ready for your <em>first live listing</em>.' ?></h1>
+    <p class="lead"><?= $hasCatalog
+      ? 'Browse the live shelf, check branch availability, and start an inquiry without bouncing between pages. Every listed unit is already routed to the branch that can answer for it.'
+      : 'The public catalog is connected and ready. Add inventory from the dashboard and every listed device will appear here automatically with branch routing, flash deals, and inquiry chat turned on.' ?></p>
     <div class="hero-actions">
-      <a href="#phones" class="btn-primary">Browse phones <span>→</span></a>
-      <a href="#how" class="btn-outline">How it works</a>
+      <a href="<?= $hasCatalog ? '#phones' : 'login.php' ?>" class="btn-primary"><?= $hasCatalog ? 'Browse phones' : 'Admin login' ?> <span>→</span></a>
+      <a href="#branches" class="btn-outline"><?= $hasCatalog ? 'Visit branches' : 'View branches' ?></a>
     </div>
     <div class="hero-stats">
-      <div><div class="stat-num"><?= (int)$totalUnits ?><span>+</span></div><div class="stat-label">Devices in stock</div></div>
-      <div><div class="stat-num"><?= count($branches) ?></div><div class="stat-label">Branch locations</div></div>
-      <div><div class="stat-num"><?= $brandCount ?><span>+</span></div><div class="stat-label">Trusted brands</div></div>
-      <div><div class="stat-num">7<span>d</span></div><div class="stat-label">Warranty period</div></div>
+      <div><div class="stat-num"><?= (int)$totalUnits ?><span><?= $totalUnits > 0 ? '+' : '' ?></span></div><div class="stat-label">Devices listed</div></div>
+      <div><div class="stat-num"><?= count($branches) ?></div><div class="stat-label">Branches ready</div></div>
+      <div><div class="stat-num"><?= $brandCount ?><span><?= $brandCount > 0 ? '+' : '' ?></span></div><div class="stat-label">Brands live</div></div>
+      <div><div class="stat-num">1<span>x</span></div><div class="stat-label">Inquiry chat</div></div>
     </div>
   </div>
   <div class="hero-visual">
@@ -454,18 +459,16 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
       </div>
       <div class="deal-meta"><span>Battery <strong><?= (int)$featuredDeal['battery'] ?>%</strong></span><span>Branch <strong><?= e(str_replace('RF Chein - ','',$featuredDeal['branch_name'] ?? 'Main')) ?></strong></span></div>
     </div>
-    <?php endif; ?>
-    <?php if (!empty($liveFlashSales[1])): $f2 = $liveFlashSales[1]; ?>
-    <div class="ghost-card">
-      <div class="gc-emoji"><?= e($f2['emoji'] ?: '📱') ?></div>
-      <div class="gc-name"><?= e($f2['brand'].' '.$f2['model']) ?></div>
-      <div class="gc-price"><?= e(peso($f2['sale_price'])) ?></div>
-    </div>
-    <?php elseif (!empty($phones[1])): $f2 = $phones[1]; ?>
-    <div class="ghost-card">
-      <div class="gc-emoji"><?= e($f2['emoji'] ?: '📱') ?></div>
-      <div class="gc-name"><?= e($f2['brand'].' '.$f2['model']) ?></div>
-      <div class="gc-price"><?= e(peso($f2['selling_price'])) ?></div>
+    <?php else: ?>
+    <div class="deal-card deal-card-placeholder">
+      <div class="deal-tag">Storefront ready</div>
+      <div class="deal-img">RF</div>
+      <div class="deal-name">Add your first public listing</div>
+      <div class="deal-spec">Devices published from the dashboard appear here automatically with branch assignment, pricing, and inquiry routing.</div>
+      <div class="deal-price-row">
+        <div class="deal-price">Live sync</div>
+      </div>
+      <div class="deal-meta"><span>Step 1 <strong>Sign in</strong></span><span>Step 2 <strong>Add inventory</strong></span></div>
     </div>
     <?php endif; ?>
   </div>
@@ -533,6 +536,7 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
 </section>
 
 <!-- Brand marquee -->
+<?php if ($hasBrands): ?>
 <div class="marquee-wrap">
   <div class="marquee-track">
     <?php for ($k=0;$k<2;$k++): foreach ($brandList as $bn): ?>
@@ -540,15 +544,16 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
     <?php endforeach; endfor; ?>
   </div>
 </div>
+<?php endif; ?>
 
 <section id="phones">
   <div class="section-header">
     <div>
-      <div class="section-label">Live stock · updated today</div>
-      <div class="section-title">Browse <em>all phones</em></div>
-      <div class="section-sub">Showing real-time inventory across all 3 branches.</div>
+      <div class="section-label"><?= $hasCatalog ? 'Live stock · updated today' : 'Catalog status · ready for setup' ?></div>
+      <div class="section-title"><?= $hasCatalog ? 'Browse <em>all phones</em>' : 'Your <em>public catalog</em>' ?></div>
+      <div class="section-sub"><?= $hasCatalog ? 'Showing real-time inventory across every active branch.' : 'This catalog fills itself as soon as listed devices are added from the dashboard.' ?></div>
     </div>
-    <a href="#how" class="btn-outline">Need help choosing?</a>
+    <a href="<?= $hasCatalog ? '#how' : 'login.php' ?>" class="btn-outline"><?= $hasCatalog ? 'Need help choosing?' : 'Open the dashboard' ?></a>
   </div>
 
   <div class="filters-bar">
@@ -680,11 +685,11 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
 <section id="inquiries" class="cta-banner">
   <div class="cta-inner">
     <div>
-      <div class="cta-headline">Ready to find your next phone?</div>
-      <div class="cta-sub">Call us at <strong>0912-345-6789</strong> or drop by any branch — we're open until 7PM.</div>
+      <div class="cta-headline"><?= $hasCatalog ? 'Need a quick answer before you visit a branch?' : 'Need to test the inquiry flow before loading inventory?' ?></div>
+      <div class="cta-sub"><?= $hasCatalog ? 'Start a chat, ask about availability, and route the message to the correct branch in a few clicks.' : 'The branch inquiry chatbot is already active. Send a message now to verify routing, notifications, and response handling.' ?></div>
     </div>
     <div class="cta-actions">
-      <button class="cta-btn" onclick="window.location.href='#phones'">Browse the catalog →</button>
+      <button class="cta-btn" onclick="window.location.href='<?= $hasCatalog ? '#phones' : 'login.php' ?>'"><?= $hasCatalog ? 'Browse the catalog' : 'Open admin' ?> →</button>
       <button class="cta-btn" onclick="openInquiryModal()">Start an inquiry →</button>
     </div>
   </div>
@@ -699,20 +704,22 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
     </div>
     <div class="modal-body">
       <div class="modal-top">
-        <div>
+        <div class="modal-copy">
           <div class="modal-brand" id="modal-brand"></div>
           <div class="modal-name" id="modal-name"></div>
+          <div class="modal-summary" id="modal-summary"></div>
         </div>
-        <button class="modal-close" onclick="document.getElementById('modal').classList.remove('open')">×</button>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal').classList.remove('open')">×</button>
       </div>
+      <div class="modal-highlights" id="modal-highlights"></div>
       <div class="modal-specs" id="modal-specs"></div>
       <div class="modal-footer">
-        <div>
-          <div class="modal-price-label">Selling price</div>
+        <div class="modal-price-stack">
+          <div class="modal-price-label" id="modal-price-label">Selling price</div>
           <div class="modal-price" id="modal-price"></div>
           <div class="modal-price-old" id="modal-price-old"></div>
         </div>
-        <button class="btn-primary" onclick="openInquiryModal(activeModalPhoneId)">Inquire now</button>
+        <button type="button" class="btn-primary modal-cta" onclick="openInquiryModal(activeModalPhoneId)">Ask about this unit</button>
       </div>
     </div>
   </div>
@@ -723,46 +730,57 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
   <div class="chatbot-panel" id="chatbot-panel">
     <div class="chatbot-header">
       <div>
-        <div class="chatbot-eyebrow">Store assistant</div>
-        <div class="chatbot-title" id="inquiry-title">RF Chein Chat</div>
-        <div class="chatbot-sub">Ask about stock, reservations, branch pickup, or live promos and we will route it to the right team.</div>
+        <div class="chatbot-title-row">
+          <div class="chatbot-title" id="inquiry-title">RF Chein AI Chat</div>
+          <div class="chatbot-status"><span></span>Online</div>
+        </div>
+        <div class="chatbot-sub" id="inquiry-subtitle">Ask about stock, price, reservation, pickup, or condition.</div>
       </div>
       <button type="button" class="modal-close chatbot-close" onclick="closeInquiryModal()" aria-label="Collapse chat">×</button>
     </div>
-    <div class="chatbot-thread">
-      <div class="chat-bubble bot">Hi. Tell us what phone you are interested in and which branch should handle the inquiry.</div>
-      <div class="chat-bubble bot inquiry-meta" id="inquiry-meta">Choose a branch, tell us what you need, and we will forward your message to the correct team.</div>
-      <div class="chat-context" id="inquiry-context">General inquiry</div>
-      <div class="chat-quick-row">
-        <button type="button" class="chat-quick" onclick="applyInquiryPreset('availability')">Check availability</button>
-        <button type="button" class="chat-quick" onclick="applyInquiryPreset('reservation')">Reserve a unit</button>
-        <button type="button" class="chat-quick" onclick="applyInquiryPreset('visit')">Plan a branch visit</button>
-      </div>
+    <div class="chatbot-thread" id="chatbot-thread">
+      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-typing" id="chat-typing" hidden><span></span><span></span><span></span><strong>AI is thinking...</strong></div>
     </div>
-    <form method="post" action="actions/create_inquiry.php" class="chatbot-form">
+    <div class="chatbot-actions">
+      <button type="button" class="chat-quick" onclick="applyInquiryPreset('availability')">Check availability</button>
+      <button type="button" class="chat-quick" onclick="applyInquiryPreset('reservation')">Reserve a unit</button>
+      <button type="button" class="chat-quick" onclick="applyInquiryPreset('visit')">Plan a branch visit</button>
+    </div>
+    <form method="post" action="actions/create_inquiry.php" class="chatbot-form" id="inquiry-form">
       <input type="hidden" name="phone_id" id="inquiry-phone-id">
       <input type="hidden" name="subject" id="inquiry-subject">
-      <div class="inquiry-grid">
-        <div><label>Full name</label><input type="text" name="customer_name" required placeholder="e.g. Juan Dela Cruz"></div>
-        <div><label>Contact number</label><input type="text" name="contact_number" required placeholder="e.g. 0912-345-6789"></div>
-      </div>
-      <div class="inquiry-grid" style="margin-top:12px">
-        <div><label>Preferred channel</label>
-          <select name="preferred_channel"><option>Website</option><option>Call</option><option>SMS</option><option>Facebook</option><option>Email</option></select>
+      <div class="chatbot-handoff">
+        <button type="button" class="chatbot-handoff-toggle" id="chatbot-handoff-toggle" onclick="toggleInquiryDetails()" aria-expanded="false">Branch & contact details</button>
+        <div class="chatbot-details" id="chatbot-details" hidden>
+          <div class="chatbot-profile">
+            <div class="chatbot-field"><label for="inquiry-customer-name">Your name</label><input type="text" id="inquiry-customer-name" name="customer_name" placeholder="e.g. Juan Dela Cruz"></div>
+            <div class="chatbot-field"><label for="inquiry-contact-number">Contact number</label><input type="text" id="inquiry-contact-number" name="contact_number" placeholder="e.g. 0912-345-6789"></div>
+          </div>
+          <div class="chatbot-profile">
+            <div class="chatbot-field"><label for="inquiry-channel">Preferred channel</label>
+              <select name="preferred_channel" id="inquiry-channel"><option>Website</option><option>Call</option><option>SMS</option><option>Facebook</option><option>Email</option></select>
+            </div>
+            <div class="chatbot-field"><label for="inquiry-branch-id">Branch</label>
+              <select name="branch_id" id="inquiry-branch-id">
+                <option value="">Select branch</option>
+                <?php foreach ($branches as $branchOption): ?>
+                  <option value="<?= (int)$branchOption['id'] ?>"><?= e(str_replace('RF Chein - ', '', $branchOption['name'])) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+          </div>
         </div>
-        <div><label>Branch</label>
-          <select name="branch_id" id="inquiry-branch-id" required>
-            <option value="">Select branch</option>
-            <?php foreach ($branches as $branchOption): ?>
-              <option value="<?= (int)$branchOption['id'] ?>"><?= e(str_replace('RF Chein - ', '', $branchOption['name'])) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </div>
       </div>
-      <div style="margin-top:12px"><label>Message</label><textarea name="message" id="inquiry-message" required placeholder="Ask about condition, availability, reservation, or flash sale details."></textarea></div>
-      <div class="chatbot-send">
-        <div class="chatbot-note">We will reply through your selected channel as soon as the branch team is available.</div>
-        <button type="submit" class="btn-primary">Send inquiry</button>
+      <div class="chatbot-composer">
+        <div class="chatbot-field chatbot-message-field"><textarea name="message" id="inquiry-message" placeholder="Ask anything about stock, price, reservation, pickup, or condition." aria-label="Message"></textarea></div>
+        <div class="chatbot-toolbar">
+          <div class="chatbot-readiness" id="chatbot-readiness">Type a question and tap Ask AI.</div>
+          <div class="chatbot-composer-actions">
+            <button type="button" class="btn-outline chatbot-secondary" id="chatbot-analyze" onclick="handleInquiryMessage()" disabled>Ask AI</button>
+            <button type="submit" class="btn-primary chatbot-submit" id="inquiry-submit" disabled>Send to branch</button>
+          </div>
+        </div>
       </div>
     </form>
   </div>
@@ -827,11 +845,16 @@ const inquiryBranches = <?= json_encode($jsInquiryBranches, JSON_UNESCAPED_UNICO
 let activeFilter = 'all';
 let activeModalPhoneId = null;
 let activeInquiryPhoneId = null;
+let inquiryChatHistory = [];
 
 function esc(value){
   return String(value ?? '').replace(/[&<>"']/g, function(ch){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
   });
+}
+
+function normalizeText(value){
+  return String(value ?? '').replace(/\s+/g,' ').trim();
 }
 
 function mediaMarkup(p){
@@ -867,7 +890,12 @@ function renderPhones(){
 
   const grid = document.getElementById('phones-grid');
   document.getElementById('result-info').innerHTML = `Showing <strong>${filtered.length}</strong> of <strong>${phones.length}</strong> units`;
-  if (!filtered.length){ grid.innerHTML = `<div class="empty-state"><div class="big-icon">🔍</div><p>No phones match your filters.</p></div>`; return; }
+  if (!filtered.length){
+    grid.innerHTML = phones.length
+      ? `<div class="empty-state"><div class="big-icon">🔍</div><p>No phones match the current filters. Try another branch, condition, or search term.</p></div>`
+      : `<div class="empty-state"><div class="big-icon">📦</div><p>No public devices are listed yet. Sign in to the dashboard, add inventory, and the catalog will publish here automatically.</p></div>`;
+    return;
+  }
   grid.innerHTML = filtered.map((p,i) => `
     <div class="phone-card" onclick="openModal(${p.id})" style="animation-delay:${i*0.04}s">
       <div class="card-img">
@@ -913,44 +941,227 @@ function openModal(id){
   }
   document.getElementById('modal-brand').textContent = p.brand;
   document.getElementById('modal-name').textContent = p.model;
+  document.getElementById('modal-summary').textContent = [p.storage, p.ram ? `${p.ram} RAM` : '', p.color || ''].filter(Boolean).join(' · ');
+  document.getElementById('modal-highlights').innerHTML = [
+    p.flash_price ? {label:'Promo', value:p.flash_label || 'Flash Sale', tone:'accent'} : null,
+    {label:'Branch', value:p.branch, tone:'secondary'},
+    {label:'Condition', value:p.cond, tone:getCondClass(p.cond).replace('cond-','')},
+    {label:'Battery', value:`${p.batt}%`, tone:'neutral'},
+  ].filter(Boolean).map(chip => `<span class="modal-chip ${chip.tone}"><strong>${esc(chip.label)}</strong>${esc(chip.value)}</span>`).join('');
+  document.getElementById('modal-price-label').textContent = p.flash_price ? 'Flash deal price' : 'Selling price';
   document.getElementById('modal-price').textContent = '₱' + effectivePrice(p).toLocaleString();
   document.getElementById('modal-price-old').textContent = p.flash_price ? 'Regular price ₱' + p.price.toLocaleString() : '';
   document.getElementById('modal-specs').innerHTML = [
-    {label:'Storage',val:p.storage},{label:'RAM',val:p.ram||'—'},
-    {label:'Battery health',val:p.batt+'%'},{label:'Condition',val:p.cond},
-    {label:'Color',val:p.color||'—'},{label:'Accessories',val:p.accessories},
-    {label:'Branch',val:p.branch},{label:'Notes',val:p.notes||'—'},
-    {label:'Promo',val:p.flash_price ? (p.flash_label || 'Flash Sale') : 'Standard listing'},
-    {label:'Promo ends',val:p.flash_until ? new Date(p.flash_until).toLocaleString() : '—'},
+    {label:'Storage',val:p.storage},
+    ...(p.ram ? [{label:'RAM',val:p.ram}] : []),
+    {label:'Battery health',val:p.batt+'%'},
+    {label:'Condition',val:p.cond},
+    ...(p.color ? [{label:'Color',val:p.color}] : []),
+    {label:'Accessories',val:p.accessories},
+    {label:'Branch',val:p.branch},
+    ...(p.flash_until ? [{label:'Promo ends',val:new Date(p.flash_until).toLocaleString()}] : []),
+    ...(p.notes ? [{label:'Notes',val:p.notes}] : []),
   ].map(s => `<div class="modal-spec-item"><div class="modal-spec-label">${esc(s.label)}</div><div class="modal-spec-val">${esc(s.val)}</div></div>`).join('');
   document.getElementById('modal').classList.add('open');
 }
 function closeModal(e){if(e.target === document.getElementById('modal')) document.getElementById('modal').classList.remove('open');}
+function setInquiryVisible(isVisible){
+  const shell = document.getElementById('inquiry-modal');
+  if (!shell) return;
+  shell.classList.toggle('is-visible', isVisible);
+}
+function refreshInquiryVisibility(){
+  const shell = document.getElementById('inquiry-modal');
+  if (!shell || shell.classList.contains('open')) return;
+  const hero = document.querySelector('.hero');
+  const revealAfter = hero ? hero.offsetTop + Math.min(hero.offsetHeight * 0.72, 420) : 320;
+  setInquiryVisible(window.scrollY > revealAfter);
+}
 function setInquiryOpen(isOpen){
   const shell = document.getElementById('inquiry-modal');
   const launcher = document.getElementById('chatbot-launcher');
+  const panel = document.getElementById('chatbot-panel');
+  setInquiryVisible(true);
   shell.classList.toggle('open', isOpen);
   launcher.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  if (isOpen) {
+    renderInquiryChat();
+    syncInquiryUi();
+    if (panel) panel.scrollTop = 0;
+  }
+  if (!isOpen) refreshInquiryVisibility();
 }
 function toggleInquiryModal(){
   const shell = document.getElementById('inquiry-modal');
+  setInquiryVisible(true);
   setInquiryOpen(!shell.classList.contains('open'));
 }
 function branchNameById(id){
   const branch = inquiryBranches.find(item => item.id === Number(id));
   return branch ? branch.name : 'selected branch';
 }
-function updateInquiryMeta(){
+function getActiveInquiryPhone(){
+  return activeInquiryPhoneId ? phones.find(ph => ph.id === activeInquiryPhoneId) : null;
+}
+function getInquiryState(){
   const branchSelect = document.getElementById('inquiry-branch-id');
-  const branchName = branchSelect && branchSelect.value ? branchNameById(branchSelect.value) : 'the selected branch';
-  const p = activeInquiryPhoneId ? phones.find(ph => ph.id === activeInquiryPhoneId) : null;
-  document.getElementById('inquiry-meta').textContent = p
-    ? `${branchName} will receive this inquiry. Ask about availability, reservation, condition, or flash sale details for ${p.brand} ${p.model}.`
-    : `Tell us what kind of phone or branch support you need, and ${branchName} will receive the inquiry.`;
-  document.getElementById('inquiry-context').textContent = p ? `${p.brand} ${p.model}` : 'General inquiry';
+  return {
+    customerName: normalizeText(document.getElementById('inquiry-customer-name')?.value),
+    contactNumber: normalizeText(document.getElementById('inquiry-contact-number')?.value),
+    preferredChannel: document.getElementById('inquiry-channel')?.value || 'Website',
+    branchId: branchSelect?.value || '',
+    branchName: branchSelect?.value ? branchNameById(branchSelect.value) : '',
+    message: normalizeText(document.getElementById('inquiry-message')?.value)
+  };
+}
+function formatInquiryFieldList(fields){
+  if (!fields.length) return '';
+  if (fields.length === 1) return fields[0];
+  return `${fields.slice(0, -1).join(', ')} and ${fields[fields.length - 1]}`;
+}
+function getInquiryMissingFields(state){
+  const missing = [];
+  if (!state.branchId) missing.push('branch');
+  if (!state.customerName) missing.push('your name');
+  if (!state.contactNumber) missing.push('a contact number');
+  return missing;
+}
+function setInquiryDetailsOpen(isOpen){
+  const details = document.getElementById('chatbot-details');
+  const toggle = document.getElementById('chatbot-handoff-toggle');
+  if (!details || !toggle) return;
+  details.hidden = !isOpen;
+  details.classList.toggle('open', isOpen);
+  toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  toggle.textContent = isOpen ? 'Hide branch & contact details' : 'Branch & contact details';
+}
+function toggleInquiryDetails(){
+  const details = document.getElementById('chatbot-details');
+  setInquiryDetailsOpen(details ? details.hidden : true);
+}
+function syncInquiryUi(){
+  const state = getInquiryState();
+  const p = getActiveInquiryPhone();
+  const subtitle = document.getElementById('inquiry-subtitle');
+  const readiness = document.getElementById('chatbot-readiness');
+  const askButton = document.getElementById('chatbot-analyze');
+  const sendButton = document.getElementById('inquiry-submit');
+  const missing = getInquiryMissingFields(state);
+  if (subtitle) {
+    if (p) {
+      subtitle.textContent = `${p.brand} ${p.model} ${state.branchName ? '· ' + state.branchName : '· ' + p.branch}`;
+    } else if (state.branchName) {
+      subtitle.textContent = `${state.branchName} selected. Ask about stock, price, reservation, pickup, or condition.`;
+    } else {
+      subtitle.textContent = 'Ask about stock, price, reservation, pickup, or condition.';
+    }
+  }
+  if (readiness) {
+    if (!state.message) {
+      readiness.textContent = 'Type a question and tap Ask AI.';
+    } else if (missing.length) {
+      readiness.textContent = `Add ${formatInquiryFieldList(missing)} before sending.`;
+    } else {
+      readiness.textContent = `Ready to send to ${state.branchName} via ${state.preferredChannel}.`;
+    }
+  }
+  if (askButton) askButton.disabled = !state.message;
+  if (sendButton) sendButton.disabled = !state.message || missing.length > 0;
+}
+function seedInquiryConversation(){
+  const p = getActiveInquiryPhone();
+  inquiryChatHistory = [];
+  if (p) {
+    pushInquiryHistory('bot', p.flash_price
+      ? `${p.brand} ${p.model} is loaded from ${p.branch} and it is on flash sale for ₱${Number(p.flash_price).toLocaleString()}. Ask about stock, battery, condition, pickup, or reservation.`
+      : `${p.brand} ${p.model} is loaded from ${p.branch}. Ask about stock, battery, condition, pickup, reservation, or price.`);
+  } else {
+    pushInquiryHistory('bot', 'Tell me what phone or branch help you need and I will prepare the right branch handoff.');
+  }
+  renderInquiryChat();
+  syncInquiryUi();
+}
+function inferInquiryIntent(message){
+  const normalized = message.toLowerCase();
+  if (/(reserve|reservation|hold)/.test(normalized)) return 'reservation';
+  if (/(price|promo|flash|discount|deal|how much)/.test(normalized)) return 'price';
+  if (/(battery|condition|issue|scratch|accessories|include|what comes)/.test(normalized)) return 'condition';
+  if (/(visit|pickup|branch|store|today|open)/.test(normalized)) return 'pickup';
+  if (/(available|availability|stock|still there)/.test(normalized)) return 'availability';
+  return 'general';
+}
+function buildAssistantReply(userMessage){
+  const p = getActiveInquiryPhone();
+  const branchSelect = document.getElementById('inquiry-branch-id');
+  if ((!branchSelect?.value) && p?.branch_id) {
+    branchSelect.value = String(p.branch_id);
+  }
+  const state = getInquiryState();
+  const intent = inferInquiryIntent(userMessage);
+  const lines = [];
+  if (p) {
+    if (intent === 'availability') {
+      lines.push(`I can ask ${state.branchName || p.branch} to confirm live stock, battery health, and included accessories for ${p.brand} ${p.model}.`);
+    } else if (intent === 'reservation') {
+      lines.push(`I can ask ${state.branchName || p.branch} to place a short pickup hold for ${p.brand} ${p.model}.`);
+    } else if (intent === 'price') {
+      lines.push(p.flash_price
+        ? `${p.brand} ${p.model} is listed at ₱${Number(p.flash_price).toLocaleString()} on flash sale, down from ₱${Number(p.price).toLocaleString()}.`
+        : `${p.brand} ${p.model} is listed at ₱${Number(p.price).toLocaleString()}.`);
+    } else if (intent === 'condition') {
+      lines.push(`I can ask ${state.branchName || p.branch} to confirm the ${p.cond.toLowerCase()} condition, ${p.batt}% battery health, and included accessories.`);
+    } else if (intent === 'pickup') {
+      lines.push(`I can route this to ${state.branchName || p.branch} so they can confirm visit hours and pickup timing.`);
+    } else {
+      lines.push(`I understood this as a question about ${p.brand} ${p.model}. I can route it with the unit context attached.`);
+    }
+  } else {
+    if (intent === 'availability') {
+      lines.push(`I can ask ${state.branchName || 'the selected branch'} to confirm which units are available right now.`);
+    } else if (intent === 'reservation') {
+      lines.push(`I can ask ${state.branchName || 'the selected branch'} what the reservation process looks like.`);
+    } else if (intent === 'pickup') {
+      lines.push(`I can route this to ${state.branchName || 'the selected branch'} so they can confirm visit hours and pickup timing.`);
+    } else {
+      lines.push(`I can send that question to ${state.branchName || 'the right branch'} and ask them for a concrete answer.`);
+    }
+  }
+  const missing = getInquiryMissingFields(getInquiryState());
+  if (missing.length) {
+    setInquiryDetailsOpen(true);
+    lines.push(`Before I send this, open Branch & contact details and add ${formatInquiryFieldList(missing)}.`);
+  } else {
+    const readyState = getInquiryState();
+    lines.push(`This is ready to send to ${readyState.branchName} via ${readyState.preferredChannel}.`);
+  }
+  return lines.join(' ');
+}
+function pushInquiryHistory(role, text, tone=''){
+  const message = normalizeText(text);
+  if (!message) return;
+  inquiryChatHistory.push({role, text: message, tone});
+  if (inquiryChatHistory.length > 12) inquiryChatHistory = inquiryChatHistory.slice(-12);
+}
+function setInquiryTyping(isTyping){
+  const typing = document.getElementById('chat-typing');
+  if (!typing) return;
+  typing.hidden = !isTyping;
+  const thread = document.getElementById('chatbot-thread');
+  if (thread) thread.scrollTop = thread.scrollHeight;
+}
+function renderInquiryChat(){
+  const log = document.getElementById('chat-log');
+  if (!log) return;
+  if (!inquiryChatHistory.length) {
+    log.innerHTML = '<div class="chat-empty">Ask anything about stock, price, reservation, pickup, or condition.</div>';
+  } else {
+    log.innerHTML = inquiryChatHistory.map(entry => `<div class="chat-bubble ${entry.role}${entry.tone ? ' ' + entry.tone : ''}">${esc(entry.text)}</div>`).join('');
+  }
+  const thread = document.getElementById('chatbot-thread');
+  if (thread) thread.scrollTop = thread.scrollHeight;
 }
 function applyInquiryPreset(type){
-  const p = activeInquiryPhoneId ? phones.find(ph => ph.id === activeInquiryPhoneId) : null;
+  const p = getActiveInquiryPhone();
   const presets = {
     availability: p
       ? `Hi, is the ${p.brand} ${p.model}${p.flash_price ? ' flash sale unit' : ''} still available?`
@@ -965,33 +1176,134 @@ function applyInquiryPreset(type){
   const messageBox = document.getElementById('inquiry-message');
   messageBox.value = presets[type] || messageBox.value;
   messageBox.focus();
+  syncInquiryUi();
+  handleInquiryMessage(messageBox.value);
   setInquiryOpen(true);
+}
+async function handleInquiryMessage(forcedMessage){
+  const messageBox = document.getElementById('inquiry-message');
+  const message = normalizeText(forcedMessage ?? messageBox.value);
+  if (!message) {
+    messageBox.focus();
+    return;
+  }
+  const last = inquiryChatHistory[inquiryChatHistory.length - 1];
+  if (!last || last.role !== 'user' || last.text !== message) {
+    pushInquiryHistory('user', message);
+  }
+  renderInquiryChat();
+  setInquiryTyping(true);
+  await new Promise(resolve => window.setTimeout(resolve, 220));
+  pushInquiryHistory('bot', buildAssistantReply(message));
+  setInquiryTyping(false);
+  renderInquiryChat();
+  syncInquiryUi();
+}
+async function submitInquiryForm(event){
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!(form instanceof HTMLFormElement)) return;
+  const messageBox = document.getElementById('inquiry-message');
+  const submitButton = document.getElementById('inquiry-submit');
+  const state = getInquiryState();
+  const missing = getInquiryMissingFields(state);
+  if (!state.message) {
+    pushInquiryHistory('bot', 'Add the question you want answered before sending it to the branch.', 'error');
+    renderInquiryChat();
+    syncInquiryUi();
+    messageBox.focus();
+    return;
+  }
+  if (missing.length) {
+    pushInquiryHistory('bot', `I still need ${formatInquiryFieldList(missing)} before I can send this to the branch.`, 'error');
+    setInquiryDetailsOpen(true);
+    renderInquiryChat();
+    syncInquiryUi();
+    return;
+  }
+  const last = inquiryChatHistory[inquiryChatHistory.length - 1];
+  if (!last || last.role !== 'user' || last.text !== state.message) {
+    pushInquiryHistory('user', state.message);
+  }
+  renderInquiryChat();
+  setInquiryTyping(true);
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = 'Sending...';
+  }
+  try {
+    const response = await fetch(form.action, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json'
+      }
+    });
+    const result = await response.json().catch(() => ({ok:false, message:'Could not send the inquiry right now.'}));
+    if (!response.ok || !result.ok) {
+      pushInquiryHistory('bot', result.message || 'Could not send the inquiry right now.', 'error');
+      return;
+    }
+    pushInquiryHistory('bot', result.message || 'Inquiry sent.', 'success');
+    messageBox.value = '';
+    setInquiryDetailsOpen(false);
+  } catch (error) {
+    pushInquiryHistory('bot', 'Connection issue. Please try again in a moment.', 'error');
+  } finally {
+    setInquiryTyping(false);
+    if (submitButton) {
+      submitButton.textContent = 'Send to branch';
+    }
+    renderInquiryChat();
+    syncInquiryUi();
+  }
 }
 function openInquiryModal(id){
   const p = id ? phones.find(ph => ph.id === id) : null;
   activeInquiryPhoneId = p ? p.id : null;
   document.getElementById('modal').classList.remove('open');
   document.getElementById('inquiry-phone-id').value = p ? p.id : '';
-  document.getElementById('inquiry-branch-id').value = p ? String(p.branch_id) : '';
   document.getElementById('inquiry-subject').value = p ? `Inquiry for ${p.brand} ${p.model}` : 'General inquiry';
-  document.getElementById('inquiry-title').textContent = p ? `Ask about ${p.brand} ${p.model}` : 'RF Chein Chat';
-  document.getElementById('inquiry-message').value = p
-    ? `Hi, I would like to ask about the ${p.brand} ${p.model}${p.flash_price ? ' flash sale' : ''}. Is it still available?`
-    : '';
-  updateInquiryMeta();
+  if (p) {
+    document.getElementById('inquiry-branch-id').value = String(p.branch_id);
+  }
+  document.getElementById('inquiry-title').textContent = p ? `Ask about ${p.brand} ${p.model}` : 'RF Chein AI Chat';
+  document.getElementById('inquiry-message').value = '';
+  setInquiryDetailsOpen(false);
+  seedInquiryConversation();
+  setInquiryVisible(true);
   setInquiryOpen(true);
 }
 function closeInquiryModal(){setInquiryOpen(false);}
+function toggleInquiryModal(){
+  const shell = document.getElementById('inquiry-modal');
+  if (shell.classList.contains('open')) {
+    setInquiryOpen(false);
+    return;
+  }
+  openInquiryModal(activeInquiryPhoneId);
+}
 function toggleFaq(btn){btn.parentElement.classList.toggle('open');}
-document.getElementById('inquiry-branch-id')?.addEventListener('change', updateInquiryMeta);
+document.getElementById('inquiry-branch-id')?.addEventListener('change', syncInquiryUi);
+document.getElementById('inquiry-form')?.addEventListener('submit', submitInquiryForm);
+document.getElementById('inquiry-message')?.addEventListener('input', syncInquiryUi);
+document.getElementById('inquiry-customer-name')?.addEventListener('input', syncInquiryUi);
+document.getElementById('inquiry-contact-number')?.addEventListener('input', syncInquiryUi);
+document.getElementById('inquiry-channel')?.addEventListener('change', syncInquiryUi);
+window.addEventListener('scroll', refreshInquiryVisibility, {passive:true});
+window.addEventListener('resize', refreshInquiryVisibility);
 document.addEventListener('keydown', e => {
   if(e.key==='Escape') {
     document.getElementById('modal').classList.remove('open');
     setInquiryOpen(false);
   }
 });
-updateInquiryMeta();
+setInquiryDetailsOpen(false);
+syncInquiryUi();
 renderPhones();
+renderInquiryChat();
+refreshInquiryVisibility();
 </script>
 </body>
 </html>

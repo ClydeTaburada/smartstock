@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin']);
+require_role(['Super Admin', 'Admin']);
 
 $user = current_user();
-$back = (is_super_admin($user) ? '../superadmin.php' : '../dashboard.php') . '#transfers';
+$back = ((is_super_admin($user) || is_admin_user($user)) ? '../superadmin.php' : '../dashboard.php') . '#transfers';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect($back);

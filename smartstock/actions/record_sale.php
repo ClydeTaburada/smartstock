@@ -1,10 +1,11 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin','Branch Admin','Staff']);
+require_role(['Super Admin', 'Admin', 'Supervisor', 'Staff']);
 
 // Super Admins operate from superadmin.php; everyone else from dashboard.php.
 $user = current_user();
-$back = is_super_admin($user) ? '../superadmin.php' : '../dashboard.php';
+$flashKey = is_executive_user($user) ? 'superadmin' : 'dashboard';
+$back = is_executive_user($user) ? '../superadmin.php' : '../dashboard.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { redirect($back); }
 
@@ -16,7 +17,7 @@ $price          = (float)($_POST['price'] ?? 0);
 $payment_method = $_POST['payment_method'] ?? 'Cash';
 
 if ($phone_id <= 0 || $price <= 0) {
-    flash_set('dashboard', 'Please pick a product and a valid sale price.');
+    flash_set($flashKey, 'Please pick a product and a valid sale price.');
     redirect($back);
 }
 if (!in_array($payment_method, ['Cash','GCash','Maya','Bank transfer'], true)) {
@@ -32,17 +33,17 @@ try {
 
     if (!$phone) {
         $db->rollBack();
-        flash_set('dashboard', 'Phone no longer exists.');
+        flash_set($flashKey, 'Phone no longer exists.');
         redirect($back);
     }
     if ((int)$phone['stock'] <= 0) {
         $db->rollBack();
-        flash_set('dashboard', 'That phone is out of stock.');
+        flash_set($flashKey, 'That phone is out of stock.');
         redirect($back);
     }
     if (!can_access_branch($phone['branch_id'] ?? null, $user)) {
         $db->rollBack();
-        flash_set('dashboard', 'You cannot record a sale for another branch.');
+        flash_set($flashKey, 'You cannot record a sale for another branch.');
         redirect($back);
     }
 
@@ -74,7 +75,7 @@ try {
     if ($attempts >= $maxAttempts) {
         $db->query("SELECT RELEASE_LOCK('txn_id_lock')");
         $db->rollBack();
-        flash_set('dashboard', 'Could not generate unique transaction ID. Please try again.');
+        flash_set($flashKey, 'Could not generate unique transaction ID. Please try again.');
         redirect($back);
     }
     
@@ -109,12 +110,12 @@ try {
     $db->query("SELECT RELEASE_LOCK('txn_id_lock')");
 
     $db->commit();
-    flash_set('dashboard', "✓ Sale $txnId recorded — inventory updated.");
+    flash_set($flashKey, "Sale $txnId recorded - inventory updated.");
 } catch (Throwable $e) {
     $db->rollBack();
     // Release lock if it was acquired
     try { $db->query("SELECT RELEASE_LOCK('txn_id_lock')"); } catch (Throwable $unlockError) {}
-    flash_set('dashboard', 'Could not record sale: ' . $e->getMessage());
+    flash_set($flashKey, 'Could not record sale: ' . $e->getMessage());
 }
 
 redirect($back);

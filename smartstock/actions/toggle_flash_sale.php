@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin', 'Branch Admin']);
+require_role(['Super Admin', 'Admin', 'Supervisor']);
 
 $user = current_user();
-$flashKey = is_super_admin($user) ? 'superadmin' : 'dashboard';
+$flashKey = (is_super_admin($user) || is_admin_user($user)) ? 'superadmin' : 'dashboard';
 $back = '../flash_sales.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

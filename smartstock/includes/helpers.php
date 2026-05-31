@@ -19,7 +19,43 @@ function flash_get($key) {
     return null;
 }
 
-function current_user() { return $_SESSION['user'] ?? null; }
+function normalize_role_name($role) {
+    $role = trim((string)$role);
+    if ($role === 'Branch Admin') {
+        return 'Supervisor';
+    }
+    return $role;
+}
+
+function role_label($role) {
+    $normalized = normalize_role_name($role);
+    if ($normalized === 'Viewer') {
+        return 'Viewer';
+    }
+    return $normalized;
+}
+
+function current_user() {
+    if (empty($_SESSION['user']) || !is_array($_SESSION['user'])) {
+        return null;
+    }
+
+    if (isset($_SESSION['user']['role'])) {
+        $_SESSION['user']['role'] = normalize_role_name($_SESSION['user']['role']);
+    }
+
+    return $_SESSION['user'];
+}
+
+function user_role(?array $user = null) {
+    $user = $user ?? current_user();
+    return normalize_role_name($user['role'] ?? '');
+}
+
+function has_role(array $roles, ?array $user = null) {
+    $normalizedRoles = array_map('normalize_role_name', $roles);
+    return in_array(user_role($user), $normalizedRoles, true);
+}
 
 function require_login() {
     if (empty($_SESSION['user'])) { redirect('login.php'); }
@@ -27,15 +63,38 @@ function require_login() {
 
 function require_role(array $roles) {
     require_login();
-    if (!in_array($_SESSION['user']['role'], $roles, true)) {
+    if (!has_role($roles)) {
         http_response_code(403);
         die('Forbidden — insufficient role.');
     }
 }
 
 function is_super_admin(?array $user = null) {
-    $user = $user ?? current_user();
-    return (string)($user['role'] ?? '') === 'Super Admin';
+    return user_role($user) === 'Super Admin';
+}
+
+function is_admin_user(?array $user = null) {
+    return user_role($user) === 'Admin';
+}
+
+function is_executive_user(?array $user = null) {
+    return is_super_admin($user) || is_admin_user($user);
+}
+
+function can_manage_transfer_status(?array $user = null) {
+    return is_executive_user($user);
+}
+
+function can_create_transfer_requests(?array $user = null) {
+    return is_executive_user($user) || is_supervisor_user($user);
+}
+
+function is_supervisor_user(?array $user = null) {
+    return user_role($user) === 'Supervisor';
+}
+
+function is_staff_user(?array $user = null) {
+    return user_role($user) === 'Staff';
 }
 
 function current_branch_id(?array $user = null) {
@@ -47,7 +106,7 @@ function can_access_branch($branchId, ?array $user = null) {
     if ($branchId === null || $branchId === 0 || $branchId === '0') {
         return false;
     }
-    if (is_super_admin($user)) {
+    if (is_super_admin($user) || is_admin_user($user)) {
         return true;
     }
     return current_branch_id($user) === (int)$branchId;
@@ -62,7 +121,7 @@ function require_branch_access($branchId) {
 
 function branch_scope_sql($column = 'branch_id', ?array $user = null) {
     $user = $user ?? current_user();
-    if (is_super_admin($user)) {
+    if (is_super_admin($user) || is_admin_user($user)) {
         return ['sql' => '1=1', 'params' => []];
     }
 
@@ -76,7 +135,7 @@ function branch_scope_sql($column = 'branch_id', ?array $user = null) {
 
 function allowed_branches(PDO $db, ?array $user = null) {
     $user = $user ?? current_user();
-    if (is_super_admin($user)) {
+    if (is_super_admin($user) || is_admin_user($user)) {
         return $db->query("SELECT * FROM branches ORDER BY name")->fetchAll();
     }
 
@@ -92,7 +151,7 @@ function allowed_branches(PDO $db, ?array $user = null) {
 
 function resolve_managed_branch_id(PDO $db, $requestedBranchId, ?array $user = null) {
     $user = $user ?? current_user();
-    if (is_super_admin($user)) {
+    if (is_super_admin($user) || is_admin_user($user)) {
         $branchId = $requestedBranchId !== null && $requestedBranchId !== '' ? (int)$requestedBranchId : null;
         if ($branchId === null || $branchId <= 0) {
             return null;
@@ -105,7 +164,7 @@ function resolve_managed_branch_id(PDO $db, $requestedBranchId, ?array $user = n
 
 function ensure_branch_assigned(?array $user = null) {
     $user = $user ?? current_user();
-    if (is_super_admin($user)) {
+    if (is_super_admin($user) || is_admin_user($user)) {
         return;
     }
     if (current_branch_id($user) === null) {
@@ -188,6 +247,9 @@ function smartstock_bootstrap(PDO $db) {
     if (!column_exists($db, 'users', 'phone')) {
         $db->exec("ALTER TABLE users ADD COLUMN phone VARCHAR(40) DEFAULT NULL AFTER email");
     }
+    $db->exec("ALTER TABLE users MODIFY role ENUM('Super Admin','Admin','Supervisor','Staff','Viewer','Branch Admin') NOT NULL DEFAULT 'Staff'");
+    $db->exec("UPDATE users SET role = 'Supervisor' WHERE role = 'Branch Admin'");
+    $db->exec("ALTER TABLE users MODIFY role ENUM('Super Admin','Admin','Supervisor','Staff','Viewer') NOT NULL DEFAULT 'Staff'");
     if (!column_exists($db, 'phones', 'supplier')) {
         $db->exec("ALTER TABLE phones ADD COLUMN supplier VARCHAR(150) DEFAULT NULL AFTER purchase_price");
     }

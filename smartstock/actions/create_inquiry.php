@@ -1,7 +1,25 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
 
+$expectsJson = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest'
+    || stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false;
+
+$respond = static function (bool $ok, string $message, string $redirect, int $status = 200, array $payload = []) use ($expectsJson) {
+    if ($expectsJson) {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(array_merge(['ok' => $ok, 'message' => $message], $payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    flash_set('public', $message);
+    redirect($redirect);
+};
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    if ($expectsJson) {
+        $respond(false, 'Invalid inquiry request.', '../index.php', 405);
+    }
     redirect('../index.php');
 }
 
@@ -14,8 +32,7 @@ $subject = trim($_POST['subject'] ?? '');
 $message = trim($_POST['message'] ?? '');
 
 if ($customerName === '' || $contactNumber === '' || $message === '') {
-    flash_set('public', 'Please provide your name, contact number, and message.');
-    redirect('../index.php#phones');
+    $respond(false, 'Please provide your name, contact number, and message.', '../index.php#phones', 422);
 }
 if (!in_array($preferredChannel, ['Phone', 'SMS', 'Call', 'Facebook', 'Email', 'Website'], true)) {
     $preferredChannel = 'Website';
@@ -33,8 +50,7 @@ if ($phoneId > 0) {
     $phone = $phoneStmt->fetch();
 
     if (!$phone) {
-        flash_set('public', 'The selected product is no longer available for inquiry.');
-        redirect('../index.php#phones');
+        $respond(false, 'The selected product is no longer available for inquiry.', '../index.php#phones', 404);
     }
 
     if ($branchId <= 0) {
@@ -46,18 +62,16 @@ if ($phoneId > 0) {
 }
 
 if ($branchId <= 0) {
-    flash_set('public', 'Please choose the branch that should receive your inquiry.');
-    redirect('../index.php#inquiries');
+    $respond(false, 'Please choose the branch that should receive your inquiry.', '../index.php#inquiries', 422);
 }
 
 if ($branchId > 0) {
-    $branchStmt = $db->prepare('SELECT id, status FROM branches WHERE id = ?');
+    $branchStmt = $db->prepare('SELECT id, name, status FROM branches WHERE id = ?');
     $branchStmt->execute([$branchId]);
     $branch = $branchStmt->fetch();
 
     if (!$branch || ($branch['status'] ?? 'Inactive') !== 'Active') {
-        flash_set('public', 'Selected branch is not available right now.');
-        redirect('../index.php#phones');
+        $respond(false, 'Selected branch is not available right now.', '../index.php#phones', 422);
     }
 }
 
@@ -82,5 +96,16 @@ $messageStmt = $db->prepare(
 );
 $messageStmt->execute([$inquiryId, $customerName, $message]);
 
-flash_set('public', 'Inquiry sent. A branch representative will get back to you soon.');
-redirect('../index.php#inquiries');
+$branchName = !empty($branch['name']) ? str_replace('RF Chein - ', '', (string)$branch['name']) : '';
+$branchLabel = $branchName !== '' ? $branchName : 'the selected branch';
+$respond(
+    true,
+    'Inquiry sent to ' . $branchLabel . '. The branch team will reply via ' . $preferredChannel . ' soon.',
+    '../index.php#inquiries',
+    200,
+    [
+        'inquiryId' => $inquiryId,
+        'branchName' => $branchLabel,
+        'preferredChannel' => $preferredChannel,
+    ]
+);

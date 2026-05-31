@@ -42,7 +42,7 @@ try {
     // execute the whole file with exec().
     $pdo->exec($sql);
 
-    echo '<div class="step">✓ Ran <code>database.sql</code> (created database, tables, and seed data).</div>';
+    echo '<div class="step">✓ Ran <code>database.sql</code> (created database, tables, and the minimal test seed).</div>';
 
     // Verify
     $pdo->exec('USE `' . DB_NAME . '`');

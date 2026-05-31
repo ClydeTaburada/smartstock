@@ -1,8 +1,11 @@
 <?php
 require_once __DIR__ . '/includes/helpers.php';
-require_role(['Super Admin']);
+require_role(['Super Admin', 'Admin']);
 
 $user = current_user();
+$isSystemAdmin = is_super_admin($user);
+$hasExecutiveControl = is_executive_user($user);
+$roleName = role_label($user['role']);
 
 $fetchScalar = static function (PDO $db, $sql, array $params = []) {
   $stmt = $db->prepare($sql);
@@ -44,7 +47,7 @@ $selectedBranchId = $requestedBranchId > 0 && isset($branchMap[$requestedBranchI
 $selectedBranch = $selectedBranchId > 0 ? $branchMap[$selectedBranchId] : null;
 $selectedBranchName = $selectedBranch ? $shortBranchName($selectedBranch['name']) : 'All branches';
 $activeBranches = $db->query("SELECT * FROM branches WHERE status = 'Active' ORDER BY name")->fetchAll();
-$canManageTransferStatus = is_super_admin($user);
+$canManageTransferStatus = can_manage_transfer_status($user);
 
 $branchPhoneSql = $selectedBranchId > 0 ? ' AND p.branch_id = ?' : '';
 $branchPhoneParams = $selectedBranchId > 0 ? [$selectedBranchId] : [];
@@ -73,16 +76,15 @@ $pendingTransferCount = (int)$fetchScalar($db, "SELECT COUNT(*) FROM stock_trans
 $globalPendingTransferCount = $pendingTransferCount;
 
 $perms = [
-    ['perm'=>'Manage branches',            'sa'=>1,'ba'=>0,'st'=>0,'vw'=>0],
-    ['perm'=>'Add / remove users',         'sa'=>1,'ba'=>0,'st'=>0,'vw'=>0],
-    ['perm'=>'Assign roles',               'sa'=>1,'ba'=>0,'st'=>0,'vw'=>0],
-    ['perm'=>'View all branches data',     'sa'=>1,'ba'=>0,'st'=>0,'vw'=>0],
-    ['perm'=>'Add / edit devices',         'sa'=>1,'ba'=>1,'st'=>1,'vw'=>0],
-    ['perm'=>'Record sales',               'sa'=>1,'ba'=>1,'st'=>1,'vw'=>0],
-    ['perm'=>'Manage own branch inventory','sa'=>1,'ba'=>1,'st'=>0,'vw'=>0],
-    ['perm'=>'View own branch reports',    'sa'=>1,'ba'=>1,'st'=>1,'vw'=>1],
-    ['perm'=>'View analytics',             'sa'=>1,'ba'=>1,'st'=>0,'vw'=>1],
-    ['perm'=>'Export reports',             'sa'=>1,'ba'=>1,'st'=>0,'vw'=>0],
+  ['perm'=>'Overview and enterprise KPIs', 'sa'=>1,'ad'=>1,'sv'=>1,'st'=>0],
+  ['perm'=>'Manage branches',              'sa'=>1,'ad'=>1,'sv'=>0,'st'=>0],
+  ['perm'=>'Users and role access',        'sa'=>1,'ad'=>1,'sv'=>0,'st'=>0],
+  ['perm'=>'Activity logs / IT oversight', 'sa'=>1,'ad'=>1,'sv'=>0,'st'=>0],
+  ['perm'=>'Enterprise branch ranking',    'sa'=>1,'ad'=>1,'sv'=>0,'st'=>0],
+  ['perm'=>'Device input and inventory',   'sa'=>1,'ad'=>1,'sv'=>1,'st'=>0],
+  ['perm'=>'Transfer requests',            'sa'=>1,'ad'=>1,'sv'=>1,'st'=>0],
+  ['perm'=>'Record sales',                 'sa'=>1,'ad'=>1,'sv'=>1,'st'=>1],
+  ['perm'=>'Reply to inquiries',           'sa'=>1,'ad'=>1,'sv'=>1,'st'=>1],
 ];
 
 // --- Embedded dashboard data ------------------------------------------------
@@ -149,6 +151,13 @@ foreach ($branchPerformance as $branchPerfRow) {
 $branchLowStockAlerts = array_values(array_filter($branchPerformance, function ($branchPerfRow) {
   return (int)$branchPerfRow['low_stock_items'] > 0;
 }));
+$branchRankMap = [];
+$branchRevenueMap = [];
+foreach ($branchPerformance as $index => $branchPerformanceRow) {
+  $branchRankMap[(int)$branchPerformanceRow['id']] = $index + 1;
+  $branchRevenueMap[(int)$branchPerformanceRow['id']] = (float)$branchPerformanceRow['revenue'];
+}
+$topRankedBranches = array_slice($branchPerformance, 0, 5);
 
 $transferParams = [];
 $transferFilterSql = '';
@@ -276,40 +285,43 @@ $flash = flash_get('superadmin');
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SmartStock — Super Admin</title>
+<title>SmartStock — <?= e($isSystemAdmin ? 'Super Admin' : 'Admin') ?></title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css">
 <style>
   :root {
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --color-background-primary:#ffffff;--color-background-secondary:#f5f6f8;--color-background-tertiary:#f9fafb;
+    --font-sans:'Plus Jakarta Sans', sans-serif;--font-display:'Sora', sans-serif;
+    --color-background-primary:rgba(255,255,255,0.92);--color-background-secondary:#f0f1ed;--color-background-tertiary:#ebeae4;
     --color-background-danger:#FCEBEB;
-    --color-border-secondary:#d7d9e0;--color-border-tertiary:#e3e5ea;--color-border-danger:#F2B4B4;
-    --color-text-primary:#16181d;--color-text-secondary:#5b6170;--color-text-tertiary:#868c99;--color-text-danger:#A32D2D;
-    --border-radius-md:8px;--border-radius-lg:12px;
+    --color-border-secondary:#d6d7cf;--color-border-tertiary:#e3e2da;--color-border-danger:#F2B4B4;
+    --color-text-primary:#16181d;--color-text-secondary:#5b6057;--color-text-tertiary:#82877d;--color-text-danger:#A32D2D;
+    --border-radius-md:12px;--border-radius-lg:20px;
   }
   html,body{margin:0;padding:0;background:var(--color-background-tertiary)}
   .sr-only{position:absolute;left:-9999px}
   *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(circle at top left,#dff2e7 0,#f7f4ec 30%,#ebeae4 100%)}
   .app{display:flex;min-height:100vh;font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)}
-  /* Dark sidebar synced with dashboard.php */
-  .sidebar{width:200px;flex-shrink:0;padding:16px 0;background:#0E1116;color:#cfd3dc}
-  .logo{padding:0 16px 14px;font-size:15px;font-weight:600;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:8px;color:#ffffff}
+  .sidebar{width:228px;flex-shrink:0;padding:22px 0;background:linear-gradient(180deg,#101318 0,#171d24 100%);color:#cfd3dc;box-shadow:24px 0 60px -44px rgba(15,23,42,.8)}
+  .logo{padding:0 18px 18px;font-size:22px;font-family:var(--font-display);font-weight:700;letter-spacing:-.04em;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px;color:#ffffff}
   .logo span{color:#1D9E75}
-  .role-badge{margin:0 16px 12px;font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(29,158,117,.18);color:#35c490;font-weight:500;display:inline-block}
-  .nav-section{font-size:10px;letter-spacing:.08em;color:#6b7280;padding:10px 16px 4px;text-transform:uppercase}
-  .nav-item{display:flex;align-items:center;gap:8px;padding:9px 16px;cursor:pointer;color:#9ca3af;font-size:13px;transition:background .15s,color .15s;text-decoration:none}
+  .role-badge{margin:0 18px 14px;font-size:11px;padding:6px 10px;border-radius:999px;background:rgba(20,184,166,.16);color:#99f6e4;font-weight:700;display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.04em}
+  .nav-section{font-size:10px;letter-spacing:.08em;color:#6b7280;padding:10px 18px 4px;text-transform:uppercase}
+  .nav-item{display:flex;align-items:center;gap:8px;padding:11px 18px;cursor:pointer;color:#9ca3af;font-size:13px;transition:background .15s,color .15s;text-decoration:none;border-right:2px solid transparent;border-radius:14px 0 0 14px;margin-left:10px}
   .nav-item:hover{background:rgba(255,255,255,.04);color:#ffffff}
-  .nav-item.active{background:rgba(29,158,117,.14);color:#35c490;font-weight:500;border-right:2px solid #1D9E75}
+  .nav-item.active{background:rgba(29,158,117,.16);color:#c8fff1;font-weight:700;border-right-color:#34d399}
   .nav-item i{font-size:16px}
   .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary)}
-  .topbar h1{font-size:15px;font-weight:500}
-  .content{padding:20px;flex:1;overflow-y:auto}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--color-border-tertiary);background:rgba(255,255,255,.78);backdrop-filter:blur(16px)}
+  .topbar h1{font-size:28px;font-family:var(--font-display);font-weight:700;letter-spacing:-.04em}
+  .content{padding:24px;flex:1;overflow-y:auto}
   .page{display:none}.page.active{display:block}
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
-  .metric-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px}
-  .metric-label{font-size:12px;color:var(--color-text-secondary);margin-bottom:6px;display:flex;align-items:center;gap:6px}
-  .metric-value{font-size:22px;font-weight:500}
+  .metric-card{background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px;box-shadow:0 24px 60px -44px rgba(15,23,42,.28)}
+  .metric-label{font-size:11px;color:var(--color-text-secondary);margin-bottom:8px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.08em;font-weight:800}
+  .metric-value{font-size:28px;font-weight:700}
   .metric-change{font-size:11px;margin-top:4px}
   .metric-change.up{color:#0F6E56}.metric-change.down{color:#A32D2D}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
@@ -330,7 +342,7 @@ $flash = flash_get('superadmin');
   .st-cell .bar-track{flex:1;max-width:70px;height:6px}
   .btn-primary{background:#1D9E75;color:#fff;border-color:#1D9E75}
   .btn-primary:hover{background:#0F6E56}
-  .badge-live{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:500;background:#E1F5EE;color:#0F6E56;display:inline-flex;align-items:center;gap:4px}
+  .badge-live{font-size:11px;padding:5px 10px;border-radius:20px;font-weight:700;background:#E1F5EE;color:#0F6E56;display:inline-flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:.04em}
   .notif-link{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);text-decoration:none}
   .notif-link.has-items{background:#EEF6F2;border-color:#B6E4D3;color:#0F6E56}
   .notif-count{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#E05151;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
@@ -344,10 +356,10 @@ $flash = flash_get('superadmin');
   .modal .form-group input,.modal .form-group select{padding:10px 12px !important;border:0.5px solid var(--color-border-secondary) !important;border-radius:var(--border-radius-md) !important;font-size:13px !important;background:var(--color-background-primary) !important;color:var(--color-text-primary) !important;transition:border-color .15s,box-shadow .15s !important;width:100% !important;box-sizing:border-box !important}
   .modal .form-group input:focus,.modal .form-group select:focus{outline:none !important;border-color:#1D9E75 !important;box-shadow:0 0 0 3px rgba(29,158,117,.1) !important}
   td table{table-layout:auto}
-  .card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px;margin-bottom:16px}
-  .card-title{font-size:13px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+  .card{background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:18px;margin-bottom:16px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}
+  .card-title{font-size:14px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
   .card-title-left{display:flex;align-items:center;gap:6px}
-  .card-title-left i{color:#7F77DD}
+  .card-title-left i{color:#0F766E}
   table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
   th{text-align:left;padding:8px 10px;font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;border-bottom:0.5px solid var(--color-border-tertiary)}
   td{padding:10px;border-bottom:0.5px solid var(--color-border-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -356,10 +368,10 @@ $flash = flash_get('superadmin');
   .pill{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:500;display:inline-block}
   .pill-purple{background:#EEEDFE;color:#3C3489}.pill-teal{background:#E1F5EE;color:#0F6E56}
   .pill-amber{background:#FAEEDA;color:#854F0B}.pill-red{background:#FCEBEB;color:#A32D2D}.pill-blue{background:#E6F1FB;color:#0C447C}
-  .btn{padding:7px 14px;font-size:13px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);cursor:pointer;background:var(--color-background-primary);color:var(--color-text-primary);display:inline-flex;align-items:center;gap:6px;transition:background .15s;text-decoration:none}
+  .btn{padding:9px 14px;font-size:13px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);cursor:pointer;background:var(--color-background-primary);color:var(--color-text-primary);display:inline-flex;align-items:center;gap:6px;transition:background .15s;text-decoration:none}
   .btn:hover{background:var(--color-background-secondary)}
-  .btn-purple{background:#534AB7;color:white;border-color:#534AB7}
-  .btn-purple:hover{background:#3C3489}
+  .btn-purple{background:#0F766E;color:white;border-color:#0F766E}
+  .btn-purple:hover{background:#0b5d57}
   .btn-sm{padding:4px 10px;font-size:12px}
   .btn-danger{background:var(--color-background-danger);color:var(--color-text-danger);border-color:var(--color-border-danger)}
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
@@ -412,6 +424,13 @@ $flash = flash_get('superadmin');
   .profile-stat{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px;background:var(--color-background-tertiary)}
   .profile-stat-label{font-size:11px;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   .profile-stat-value{font-size:20px;font-weight:500}
+  .rank-stack{display:grid;gap:10px}
+  .rank-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--color-border-tertiary);border-radius:16px;background:#f8f7f1}
+  .rank-badge{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;background:#dff2e7;color:#0F766E;font-weight:800;flex-shrink:0}
+  .rank-label{display:flex;align-items:center;gap:12px}
+  .product-cell{display:flex;align-items:center;gap:12px}
+  .product-thumb{width:48px;height:48px;border-radius:14px;object-fit:cover;border:1px solid var(--color-border-tertiary);background:#f7f7f2;flex-shrink:0}
+  .product-thumb.placeholder{display:inline-flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);font-size:18px}
   .transfer-stack{display:grid;gap:12px}
   .transfer-card{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px;background:linear-gradient(180deg,#ffffff 0%,#fafcfd 100%)}
   .transfer-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
@@ -435,48 +454,48 @@ $flash = flash_get('superadmin');
   @media (max-width: 1100px){.metrics,.dss-grid,.abc-summary,.profile-grid,.metric-grid-3{grid-template-columns:repeat(2,1fr)}.grid2,.form-grid,.form-grid-3{grid-template-columns:1fr}}
   @media (max-width: 760px){.app{display:block}.sidebar{width:auto}.topbar{flex-direction:column;align-items:flex-start;gap:10px}.profile-grid,.metrics,.dss-grid,.abc-summary,.metric-grid-3{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="system-polish.css?v=1">
 </head>
 <body>
 
 <div class="app">
   <div class="sidebar">
     <div class="logo"><span>Smart</span>Stock</div>
-    <div class="role-badge"><i class="ti ti-shield-check" style="font-size:11px"></i> Super Admin</div>
+    <div class="role-badge"><i class="ti <?= $isSystemAdmin ? 'ti-shield-check' : 'ti-briefcase' ?>" style="font-size:11px"></i> <?= e($roleName) ?></div>
 
-    <div class="nav-section">Shop</div>
-    <div class="nav-item active" data-page="dashboard" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
+    <div class="nav-section">Workspace</div>
+    <div class="nav-item active" data-page="overview" onclick="nav('overview',this)"><i class="ti ti-eye"></i> Overview</div>
     <div class="nav-item" data-page="inventory" onclick="nav('inventory',this)"><i class="ti ti-package"></i> Inventory</div>
-    <div class="nav-item" data-page="sales" onclick="nav('sales',this)"><i class="ti ti-receipt"></i> Sales</div>
+    <div class="nav-item" data-page="sales" onclick="nav('sales',this)"><i class="ti ti-receipt-2"></i> Sales</div>
     <div class="nav-item" data-page="transfers" onclick="nav('transfers',this)"><i class="ti ti-arrows-transfer-up-down"></i> Transfers</div>
     <div class="nav-item" data-page="analytics" onclick="nav('analytics',this)"><i class="ti ti-chart-bar"></i> Analytics</div>
-    <div class="nav-item" data-page="decisions" onclick="nav('decisions',this)"><i class="ti ti-bulb"></i> Decision support</div>
-    <a class="nav-item" href="flash_sales.php"><i class="ti ti-bolt"></i> Flash sales</a>
-    <a class="nav-item" href="inquiries.php"><i class="ti ti-messages"></i> Inquiries</a>
-    <a class="nav-item" href="insights.php"><i class="ti ti-chart-dots-3"></i> Branch health</a>
+    <div class="nav-item" data-page="decisions" onclick="nav('decisions',this)"><i class="ti ti-brain"></i> Decision support</div>
+    <div class="nav-item" data-page="devices" onclick="nav('devices',this)"><i class="ti ti-device-mobile-plus"></i> Device input</div>
+    <a class="nav-item" href="insights.php"><i class="ti ti-trophy"></i> Branch ranking</a>
+    <?php if ($hasExecutiveControl): ?>
+      <div class="nav-item" data-page="branches" onclick="nav('branches',this)"><i class="ti ti-building-store"></i> Branches</div>
+      <div class="nav-item" data-page="users" onclick="nav('users',this)"><i class="ti ti-users"></i> Users</div>
+    <?php endif; ?>
 
-    <div class="nav-section">Super admin</div>
-    <div class="nav-item" data-page="overview" onclick="nav('overview',this)"><i class="ti ti-eye"></i> Overview</div>
-    <div class="nav-item" data-page="branches" onclick="nav('branches',this)"><i class="ti ti-building-store"></i> Branches</div>
-    <div class="nav-item" data-page="users" onclick="nav('users',this)"><i class="ti ti-users"></i> Users</div>
-    <div class="nav-item" data-page="devices" onclick="nav('devices',this)"><i class="ti ti-device-mobile"></i> Device input</div>
-
-    <div class="nav-section">System</div>
-    <div class="nav-item" data-page="roles" onclick="nav('roles',this)"><i class="ti ti-key"></i> Roles &amp; access</div>
-    <div class="nav-item" data-page="logs" onclick="nav('logs',this)"><i class="ti ti-clipboard-list"></i> Activity logs</div>
+    <?php if ($hasExecutiveControl): ?>
+      <div class="nav-section">System</div>
+      <div class="nav-item" data-page="roles" onclick="nav('roles',this)"><i class="ti ti-key"></i> Roles &amp; access</div>
+      <div class="nav-item" data-page="logs" onclick="nav('logs',this)"><i class="ti ti-clipboard-list"></i> Activity logs</div>
+    <?php endif; ?>
 
     <a class="nav-item" href="logout.php" style="margin-top:20px;color:#ff8a8a"><i class="ti ti-logout"></i> Sign out</a>
   </div>
 
   <div class="main">
     <div class="topbar">
-      <h1 id="page-title">Dashboard</h1>
-      <div style="display:flex;align-items:center;gap:10px">
+      <h1 id="page-title">Overview</h1>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div class="branch-switcher">
           <form method="get">
             <label class="sr-only" for="branch-switch">Branch scope</label>
             <select id="branch-switch" name="branch_id" onchange="this.form.submit()">
               <option value="0">All branches</option>
-              <?php foreach ($allowedBranches as $branchOption): ?>
+              <?php foreach ($branches as $branchOption): ?>
                 <option value="<?= (int)$branchOption['id'] ?>" <?= $selectedBranchId === (int)$branchOption['id'] ? 'selected' : '' ?>><?= e($shortBranchName($branchOption['name'])) ?></option>
               <?php endforeach; ?>
             </select>
@@ -488,7 +507,6 @@ $flash = flash_get('superadmin');
           <?php if ($openInquiryCount > 0): ?><span class="notif-count"><?= (int)$openInquiryCount ?></span><?php endif; ?>
         </a>
         <span class="scope-pill"><i class="ti ti-building-store"></i> <?= e($selectedBranchName) ?></span>
-        <button class="btn btn-primary" onclick="openSaleModal()"><i class="ti ti-plus"></i> New Sale</button>
         <div style="font-size:13px;color:var(--color-text-secondary)"><strong><?= e($user['name']) ?></strong></div>
         <div class="avatar av-purple"><?= e(strtoupper(substr($user['name'], 0, 2))) ?></div>
       </div>
@@ -503,7 +521,7 @@ $flash = flash_get('superadmin');
     <?php endif; ?>
 
       <!-- DASHBOARD -->
-      <div class="page active" id="pg-dashboard">
+      <div class="page" id="pg-dashboard">
         <div class="metrics">
           <div class="metric-card">
             <div class="metric-label"><i class="ti ti-currency-peso"></i> Revenue (Month)</div>
@@ -518,7 +536,7 @@ $flash = flash_get('superadmin');
           <div class="metric-card">
             <div class="metric-label"><i class="ti ti-package"></i> Units in Stock</div>
             <div class="metric-value"><?= $unitsInStock ?></div>
-            <div class="metric-change <?= $lowStockCount ? 'down' : 'up' ?>"><?= $lowStockCount ? '↓ ' . $lowStockCount . ' low-stock items' : 'All healthy' ?></div>
+            <div class="metric-change <?= $lowStockCount ? 'down' : 'up' ?>"><?= $lowStockCount ? '↓ ' . $lowStockCount . ' low-stock items' : 'Stock sufficient' ?></div>
           </div>
           <div class="metric-card">
             <div class="metric-label"><i class="ti ti-device-mobile"></i> Products Listed</div>
@@ -550,7 +568,7 @@ $flash = flash_get('superadmin');
         <div class="card">
           <div class="card-title"><div class="card-title-left"><i class="ti ti-alert-triangle"></i> Low stock alerts</div></div>
           <?php $alerts = array_filter($inventory, fn($r) => $r['stock'] <= 3);
-            if (!$alerts): echo '<div style="color:var(--color-text-secondary);font-size:12px">Stock levels are healthy.</div>';
+            if (!$alerts): echo '<div style="color:var(--color-text-secondary);font-size:12px">Stock levels are sufficient.</div>';
             else: foreach ($alerts as $r): $danger = ((int)$r['stock'] === 0); ?>
             <div class="alert-row <?= $danger ? 'danger' : 'warn' ?>">
               <i class="ti <?= $danger ? 'ti-alert-circle' : 'ti-alert-triangle' ?>"></i>
@@ -888,7 +906,7 @@ $flash = flash_get('superadmin');
                     <td><?= e($f['name']) ?></td>
                     <td><strong><?= (int)$f['sold'] ?></strong></td>
                     <td><?= (int)$f['stock'] ?></td>
-                    <td><?php if ($f['stock'] <= $f['sold']): ?><span class="prio-pill prio-high">At risk</span><?php else: ?><span class="pill pill-teal">Healthy</span><?php endif; ?></td>
+                    <td><?php if ($f['stock'] <= $f['sold']): ?><span class="prio-pill prio-high">At risk</span><?php else: ?><span class="pill pill-teal">Sufficient</span><?php endif; ?></td>
                   </tr>
                 <?php endforeach; ?>
                 <?php if (!$fastMovers): ?><tr><td colspan="4" style="text-align:center;color:var(--color-text-tertiary);padding:24px">No sales in the last 30 days.</td></tr><?php endif; ?>
@@ -988,7 +1006,7 @@ $flash = flash_get('superadmin');
       </div>
 
       <!-- OVERVIEW -->
-      <div class="page" id="pg-overview">
+      <div class="page active" id="pg-overview">
         <div class="metrics">
           <div class="metric-card"><div class="metric-label"><i class="ti ti-building-store" style="font-size:13px"></i> Total branches</div><div class="metric-value"><?= $ovBranches ?></div><div class="metric-change up">Network footprint</div></div>
           <div class="metric-card"><div class="metric-label"><i class="ti ti-packages" style="font-size:13px"></i> Total stocks across branches</div><div class="metric-value"><?= $totalStocksAcrossBranches ?></div><div class="metric-change up">Enterprise inventory</div></div>
@@ -1007,21 +1025,40 @@ $flash = flash_get('superadmin');
           </div>
           <div class="card">
             <div class="card-title"><div class="card-title-left"><i class="ti ti-alert-triangle"></i> Low-stock branch alerts</div></div>
-            <?php if (!$branchLowStockAlerts): ?><div class="page-intro">All branches are currently healthy.</div><?php endif; ?>
+            <?php if (!$branchLowStockAlerts): ?><div class="page-intro">All branches are currently sufficient.</div><?php endif; ?>
             <?php foreach ($branchLowStockAlerts as $branchAlert): ?>
               <div class="alert-row warn"><i class="ti ti-alert-triangle"></i><span><strong><?= e($shortBranchName($branchAlert['name'])) ?></strong> has <?= (int)$branchAlert['low_stock_items'] ?> low-stock item(s) across <?= (int)$branchAlert['units_count'] ?> total units.</span></div>
             <?php endforeach; ?>
           </div>
         </div>
         <div class="card">
+          <div class="card-title"><div class="card-title-left"><i class="ti ti-trophy"></i> Branch ranking snapshot</div></div>
+          <div class="rank-stack">
+            <?php foreach ($topRankedBranches as $rankedBranch): ?>
+              <div class="rank-row">
+                <div class="rank-label">
+                  <span class="rank-badge">#<?= (int)$branchRankMap[(int)$rankedBranch['id']] ?></span>
+                  <div>
+                    <div style="font-weight:700"><?= e($shortBranchName($rankedBranch['name'])) ?></div>
+                    <div class="page-intro">Sales: <?= (int)$rankedBranch['sales_count'] ?> · Units: <?= (int)$rankedBranch['units_count'] ?></div>
+                  </div>
+                </div>
+                <div style="font-weight:700"><?= e(peso($rankedBranch['revenue'])) ?></div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-title"><div class="card-title-left"><i class="ti ti-building-store"></i> Branch summary</div></div>
           <table>
-            <thead><tr><th style="width:28%">Branch</th><th style="width:22%">Manager</th><th style="width:18%">Users</th><th style="width:18%">Devices</th><th style="width:14%">Status</th></tr></thead>
+            <thead><tr><th style="width:10%">Rank</th><th style="width:24%">Branch</th><th style="width:18%">Manager</th><th style="width:16%">Revenue</th><th style="width:12%">Users</th><th style="width:10%">Devices</th><th style="width:10%">Status</th></tr></thead>
             <tbody>
               <?php foreach ($branches as $b): ?>
                 <tr>
+                  <td><strong>#<?= (int)($branchRankMap[(int)$b['id']] ?? 0) ?></strong></td>
                   <td><?= e($b['name']) ?></td>
                   <td><?= e($b['manager'] ?: '—') ?></td>
+                  <td><?= e(peso($branchRevenueMap[(int)$b['id']] ?? 0)) ?></td>
                   <td><?= (int)$b['users_count'] ?></td>
                   <td><?= (int)$b['devices_count'] ?></td>
                   <td><span class="pill <?= $b['status']==='Active'?'pill-teal':'pill-amber' ?>"><?= e($b['status']) ?></span></td>
@@ -1090,11 +1127,11 @@ $flash = flash_get('superadmin');
                   <div class="fg"><label>Address</label><input type="text" name="address" value="<?= e($b['address']) ?>" required></div>
                 </div>
                 <div class="form-grid">
-                  <div class="fg"><label>Branch manager</label><input type="text" value="<?= e($b['manager'] ?: 'Assigned from Branch Admin user') ?>" disabled></div>
-                  <div class="fg"><label>Contact number</label><input type="text" value="<?= e($b['phone'] ?: 'Assigned from Branch Admin user') ?>" disabled></div>
+                  <div class="fg"><label>Branch manager</label><input type="text" value="<?= e($b['manager'] ?: 'Assigned from Supervisor user') ?>" disabled></div>
+                  <div class="fg"><label>Contact number</label><input type="text" value="<?= e($b['phone'] ?: 'Assigned from Supervisor user') ?>" disabled></div>
                 </div>
                 <div class="form-grid">
-                  <div class="fg"><label>Branch email</label><input type="text" value="<?= e($b['email'] ?? 'Assigned from Branch Admin user') ?>" disabled></div>
+                  <div class="fg"><label>Branch email</label><input type="text" value="<?= e($b['email'] ?? 'Assigned from Supervisor user') ?>" disabled></div>
                   <div class="fg"><label>Status</label><select name="status"><option value="Active" <?= $b['status']==='Active' ? 'selected' : '' ?>>Active</option><option value="Inactive" <?= $b['status']==='Inactive' ? 'selected' : '' ?>>Inactive</option></select></div>
                 </div>
                 <div style="display:flex;justify-content:flex-end">
@@ -1117,7 +1154,7 @@ $flash = flash_get('superadmin');
             </div>
             <div class="form-grid">
               <div class="fg"><label>Role</label>
-                <select name="role"><option>Branch Admin</option><option>Staff</option><option>Viewer</option></select>
+                <select name="role"><option>Admin</option><option>Supervisor</option><option>Staff</option></select>
               </div>
               <div class="fg"><label>Assign to branch</label>
                 <select name="branch_id">
@@ -1134,7 +1171,7 @@ $flash = flash_get('superadmin');
             </div>
             <div class="form-grid">
               <div class="fg"><label>Temporary password</label><input type="password" name="password" required minlength="6" placeholder="Min. 6 characters"></div>
-              <div class="fg"><label>Branch contact sync</label><input type="text" value="For Branch Admin, the name, email, and contact number above become the branch manager details." disabled></div>
+              <div class="fg"><label>Branch contact sync</label><input type="text" value="For Supervisors, the name, email, and contact number above become the branch manager details." disabled></div>
             </div>
             <div style="display:flex;justify-content:flex-end">
               <button type="submit" class="btn btn-purple"><i class="ti ti-user-plus"></i> Create user</button>
@@ -1148,10 +1185,14 @@ $flash = flash_get('superadmin');
             <thead><tr><th style="width:26%">Name</th><th style="width:26%">Branch</th><th style="width:16%">Role</th><th style="width:20%">Username</th><th style="width:12%">Actions</th></tr></thead>
             <tbody>
               <?php foreach ($users as $i => $u): ?>
+                <?php
+                  $userRoleLabel = role_label($u['role']);
+                  $userRoleClass = $userRoleLabel === 'Super Admin' ? 'pill-red' : ($userRoleLabel === 'Admin' ? 'pill-blue' : ($userRoleLabel === 'Supervisor' ? 'pill-purple' : ($userRoleLabel === 'Staff' ? 'pill-teal' : 'pill-amber')));
+                ?>
                 <tr>
                   <td><div class="user-cell"><div class="avatar <?= ['av-purple','av-teal','av-blue'][$i%3] ?>" style="width:28px;height:28px;font-size:11px"><?= e(strtoupper(substr($u['name'],0,2))) ?></div><?= e($u['name']) ?></div></td>
                   <td style="font-size:12px"><?= e(str_replace('RF Chein - ', '', $u['branch_name'] ?: '—')) ?></td>
-                  <td><span class="pill <?= $u['role']==='Super Admin'?'pill-red':($u['role']==='Branch Admin'?'pill-purple':($u['role']==='Staff'?'pill-teal':'pill-blue')) ?>"><?= e($u['role']) ?></span></td>
+                  <td><span class="pill <?= $userRoleClass ?>"><?= e($userRoleLabel) ?></span></td>
                   <td style="font-size:12px;color:var(--color-text-secondary)"><?= e($u['username']) ?></td>
                   <td>
                     <?php if ($u['id'] != $user['id']): ?>
@@ -1251,11 +1292,23 @@ $flash = flash_get('superadmin');
         <div class="card">
           <div class="card-title"><div class="card-title-left"><i class="ti ti-list"></i> Recently added devices</div><span style="font-size:12px;color:var(--color-text-secondary)"><?= $ovDevices ?> devices</span></div>
           <table>
-            <thead><tr><th style="width:24%">Device</th><th style="width:12%">Storage</th><th style="width:14%">Condition</th><th style="width:10%">Battery</th><th style="width:14%">Price</th><th style="width:14%">Supplier</th><th style="width:12%">Branch</th></tr></thead>
+            <thead><tr><th style="width:28%">Product</th><th style="width:12%">Storage</th><th style="width:14%">Condition</th><th style="width:10%">Battery</th><th style="width:14%">Price</th><th style="width:12%">Supplier</th><th style="width:10%">Branch</th></tr></thead>
             <tbody>
               <?php foreach ($devices as $d): ?>
                 <tr>
-                  <td><?= e($d['brand'].' '.$d['model']) ?></td>
+                  <td>
+                    <div class="product-cell">
+                      <?php if (!empty($d['image_url'])): ?>
+                        <img src="<?= e($d['image_url']) ?>" alt="<?= e($d['brand'] . ' ' . $d['model']) ?>" class="product-thumb">
+                      <?php else: ?>
+                        <span class="product-thumb placeholder"><i class="ti ti-device-mobile"></i></span>
+                      <?php endif; ?>
+                      <div>
+                        <div style="font-weight:700"><?= e($d['brand'].' '.$d['model']) ?></div>
+                        <div class="page-intro"><?= e($d['color'] ?: 'Catalog item') ?></div>
+                      </div>
+                    </div>
+                  </td>
                   <td><?= e($d['storage']) ?></td>
                   <td><span class="pill <?= $d['condition']==='Excellent'?'pill-teal':($d['condition']==='Good'?'pill-blue':($d['condition']==='Fair'?'pill-amber':'pill-red')) ?>"><?= e($d['condition']) ?></span></td>
                   <td><?= (int)$d['battery'] ?>%</td>
@@ -1274,7 +1327,7 @@ $flash = flash_get('superadmin');
         <div class="card">
           <div class="card-title"><div class="card-title-left"><i class="ti ti-key"></i> Role permissions matrix</div></div>
           <table>
-            <thead><tr><th style="width:36%">Permission</th><th style="width:16%">Super Admin</th><th style="width:16%">Branch Admin</th><th style="width:16%">Staff</th><th style="width:16%">Viewer</th></tr></thead>
+            <thead><tr><th style="width:36%">Permission</th><th style="width:16%">Super Admin</th><th style="width:16%">Admin</th><th style="width:16%">Supervisor</th><th style="width:16%">Staff</th></tr></thead>
             <tbody>
               <?php foreach ($perms as $p):
                 $chk = '<i class="ti ti-check" style="color:#1D9E75;font-size:16px"></i>';
@@ -1283,9 +1336,9 @@ $flash = flash_get('superadmin');
                 <tr>
                   <td><?= e($p['perm']) ?></td>
                   <td style="text-align:center"><?= $p['sa'] ? $chk : $x ?></td>
-                  <td style="text-align:center"><?= $p['ba'] ? $chk : $x ?></td>
+                  <td style="text-align:center"><?= $p['ad'] ? $chk : $x ?></td>
+                  <td style="text-align:center"><?= $p['sv'] ? $chk : $x ?></td>
                   <td style="text-align:center"><?= $p['st'] ? $chk : $x ?></td>
-                  <td style="text-align:center"><?= $p['vw'] ? $chk : $x ?></td>
                 </tr>
               <?php endforeach; ?>
             </tbody>
@@ -1379,7 +1432,7 @@ function nav(page, el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('pg-'+page).classList.add('active');
-  const titles={dashboard:'Dashboard',inventory:'Inventory',sales:'Sales',transfers:'Transfers',analytics:'Analytics',decisions:'Decision support',overview:'Super Admin overview',branches:'Branch management',users:'User management',devices:'Device input',roles:'Roles & access',logs:'Activity logs'};
+  const titles={dashboard:'Dashboard',inventory:'Inventory',sales:'Sales',transfers:'Transfers',analytics:'Analytics',decisions:'Decision support',overview:'Overview',branches:'Branch management',users:'User management',devices:'Device input',roles:'Roles & access',logs:'Activity logs'};
   document.getElementById('page-title').textContent=titles[page];
   window.location.hash = page;
 }
@@ -1446,7 +1499,7 @@ document.getElementById('sale-modal')?.addEventListener('click', e => {
 });
 filterTransferProducts();
 
-const initialPage = window.location.hash ? window.location.hash.slice(1) : (location.hash === '#devices' ? 'devices' : 'dashboard');
+const initialPage = window.location.hash ? window.location.hash.slice(1) : 'overview';
 const initialNav = document.querySelector('.nav-item[data-page="' + initialPage + '"]');
 if (initialNav) nav(initialPage, initialNav);
 </script>

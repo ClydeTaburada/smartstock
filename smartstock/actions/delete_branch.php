@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin']);
+require_role(['Super Admin', 'Admin']);
 
 $id = (int)($_POST['id'] ?? 0);
 if ($id <= 0) { redirect('../superadmin.php#branches'); }

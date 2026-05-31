@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/helpers.php';
-require_role(['Super Admin']);
+require_role(['Super Admin', 'Admin']);
 
 $branchRows = $db->query(
     'SELECT b.id, b.name, b.status, b.manager,
@@ -49,18 +49,26 @@ foreach ($branchRows as &$branchRow) {
     $score = max(0, $score);
     $branchRow['health_score'] = $score;
     $branchRow['flags'] = $flags;
-    $branchRow['risk_level'] = $score <= 45 ? 'Critical' : ($score <= 70 ? 'Watch' : 'Healthy');
+    $branchRow['risk_level'] = $score <= 45 ? 'Critical' : ($score <= 70 ? 'Watch' : 'Sufficient');
     $branchRow['recommended_action'] = $score <= 45
         ? 'Launch a promo, rotate stock, and review branch demand immediately.'
         : ($score <= 70
             ? 'Add a flash sale or transfer hot items into this branch.'
             : 'Maintain current branch mix and monitor the next weekly cycle.');
 
-    if ($branchRow['risk_level'] !== 'Healthy') {
+    if ($branchRow['risk_level'] !== 'Sufficient') {
         $watchlist[] = $branchRow;
     }
 }
 unset($branchRow);
+
+  usort($branchRows, static function (array $a, array $b): int {
+    return [(float)$b['revenue_30d'], (int)$b['sales_30d'], (string)$a['name']] <=> [(float)$a['revenue_30d'], (int)$a['sales_30d'], (string)$b['name']];
+  });
+  foreach ($branchRows as $index => &$branchRow) {
+    $branchRow['rank'] = $index + 1;
+  }
+  unset($branchRow);
 
 usort($watchlist, static function (array $a, array $b): int {
     return $a['health_score'] <=> $b['health_score'];
@@ -81,21 +89,25 @@ $formulaRows = [
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SmartStock · Branch Health Insights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <style>
-  :root{--bg:#f8fafc;--card:#fff;--text:#111827;--muted:#6b7280;--border:#dbe3ef;--accent:#7c3aed;--good:#0f9d58;--warn:#d97706;--bad:#dc2626}
-  *{box-sizing:border-box} body{margin:0;font-family:Arial,sans-serif;background:linear-gradient(180deg,#f3e8ff 0,#f8fafc 24%);color:var(--text)}
+  :root{--bg:#ebeae4;--card:rgba(255,255,255,.92);--text:#111827;--muted:#5b6057;--border:#e3e2da;--accent:#0f766e;--good:#0f9d58;--warn:#d97706;--bad:#dc2626;--display:'Sora',sans-serif;--body:'Plus Jakarta Sans',sans-serif}
+  *{box-sizing:border-box} body{margin:0;font-family:var(--body);background:radial-gradient(circle at top left,#dff2e7 0,#f7f4ec 30%,#ebeae4 100%);color:var(--text)}
   .wrap{max-width:1240px;margin:0 auto;padding:28px 22px 48px}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:20px}
-  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:700}.title{font-size:34px;font-weight:800;margin:6px 0}.sub{color:var(--muted);max-width:780px;line-height:1.6}
-  .back{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.8);color:var(--text);text-decoration:none;font-size:14px}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px}.stat .n{font-size:28px;font-weight:800}.stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:18px}.card h2{margin:0 0 14px;font-size:18px}
+  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:800}.title{font-size:34px;font-weight:700;font-family:var(--display);margin:6px 0}.sub{color:var(--muted);max-width:780px;line-height:1.6}
+  .back{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.78);color:var(--text);text-decoration:none;font-size:14px;backdrop-filter:blur(16px)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}.stat .n{font-size:28px;font-weight:800}.stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:18px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}.card h2{margin:0 0 14px;font-size:18px}
   table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:12px 10px;border-bottom:1px solid #edf1f6;font-size:14px;vertical-align:top} th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-  .pill{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700}.critical{background:#fee2e2;color:#991b1b}.watch{background:#fff7ed;color:#9a3412}.healthy{background:#dcfce7;color:#166534}
+  .pill{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700}.critical{background:#fee2e2;color:#991b1b}.watch{background:#fff7ed;color:#9a3412}.sufficient{background:#dcfce7;color:#166534}
   .flag{display:block;font-size:12px;color:var(--muted);margin-top:4px}.formula{display:grid;gap:12px}.formula-item{border:1px solid #edf1f6;border-radius:16px;padding:14px;background:#fcfcff}.formula-name{font-weight:800;margin-bottom:4px}.tiny{font-size:12px;color:var(--muted)}
   @media (max-width:980px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
   @media (max-width:640px){.stats{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="system-polish.css?v=1">
 </head>
 <body>
 <div class="wrap">
@@ -120,12 +132,13 @@ $formulaRows = [
       <h2>Branch watchlist</h2>
       <table>
         <thead>
-          <tr><th>Branch</th><th>7-day revenue</th><th>30-day revenue</th><th>30-day sales</th><th>Score</th><th>Action</th></tr>
+          <tr><th>Rank</th><th>Branch</th><th>7-day revenue</th><th>30-day revenue</th><th>30-day sales</th><th>Score</th><th>Action</th></tr>
         </thead>
         <tbody>
           <?php foreach ($branchRows as $branchRow): ?>
             <?php $riskClass = strtolower($branchRow['risk_level']); ?>
             <tr>
+              <td><strong>#<?= (int)$branchRow['rank'] ?></strong></td>
               <td>
                 <strong><?= e(str_replace('RF Chein - ', '', $branchRow['name'])) ?></strong>
                 <span class="flag">Manager: <?= e($branchRow['manager'] ?: 'Unassigned') ?></span>

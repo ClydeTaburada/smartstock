@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin', 'Branch Admin', 'Staff']);
+require_role(['Super Admin', 'Admin', 'Supervisor', 'Staff']);
 
 $user = current_user();
-$flashKey = is_super_admin($user) ? 'superadmin' : 'dashboard';
+$flashKey = is_executive_user($user) ? 'superadmin' : 'dashboard';
 $back = '../inquiries.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -52,9 +52,9 @@ $db->beginTransaction();
 try {
     if ($reply !== '') {
         $messageStmt = $db->prepare(
-            'INSERT INTO inquiry_messages (inquiry_id, user_id, sender_type, sender_name, message) VALUES (?, ?, "Staff", ?, ?)'
+            'INSERT INTO inquiry_messages (inquiry_id, user_id, sender_type, sender_name, message) VALUES (?, ?, ?, ?, ?)'
         );
-        $messageStmt->execute([$inquiryId, $user['id'] ?? null, $user['name'], $reply]);
+        $messageStmt->execute([$inquiryId, $user['id'] ?? null, role_label(user_role($user)), $user['name'], $reply]);
     }
 
     $now = date('Y-m-d H:i:s');
