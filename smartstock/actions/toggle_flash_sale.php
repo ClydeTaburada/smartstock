@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/helpers.php';
-require_role(['Super Admin', 'Admin', 'Supervisor']);
+require_role(['Super Admin', 'Admin']);
 
 $user = current_user();
 $flashKey = (is_super_admin($user) || is_admin_user($user)) ? 'superadmin' : 'dashboard';
@@ -14,8 +14,9 @@ ensure_branch_assigned($user);
 
 $flashSaleId = (int)($_POST['id'] ?? 0);
 $action = $_POST['action'] ?? 'disable';
+$approvalNotes = trim($_POST['approval_notes'] ?? '');
 
-if ($flashSaleId <= 0 || !in_array($action, ['disable', 'activate'], true)) {
+if ($flashSaleId <= 0 || !in_array($action, ['disable', 'activate', 'approve', 'reject'], true)) {
     flash_set($flashKey, 'Flash sale action is invalid.');
     redirect($back);
 }
@@ -39,15 +40,32 @@ if (!can_access_branch($flashSale['branch_id'] ?? null, $user)) {
     redirect($back);
 }
 
-$isActive = $action === 'activate' ? 1 : 0;
-$update = $db->prepare('UPDATE flash_sales SET is_active = ? WHERE id = ?');
-$update->execute([$isActive, $flashSaleId]);
+$now = date('Y-m-d H:i:s');
+
+if ($action === 'approve') {
+    $update = $db->prepare('UPDATE flash_sales SET is_active = 1, approval_status = "Approved", approval_notes = ?, approved_by = ?, approved_at = ? WHERE id = ?');
+    $update->execute([$approvalNotes !== '' ? $approvalNotes : 'Approved from flash sale board.', $user['id'] ?? null, $now, $flashSaleId]);
+    $logAction = 'Approved flash sale for ' . $flashSale['brand'] . ' ' . $flashSale['model'];
+} elseif ($action === 'reject') {
+    $update = $db->prepare('UPDATE flash_sales SET is_active = 0, approval_status = "Rejected", approval_notes = ?, approved_by = ?, approved_at = ? WHERE id = ?');
+    $update->execute([$approvalNotes !== '' ? $approvalNotes : 'Rejected from flash sale board.', $user['id'] ?? null, $now, $flashSaleId]);
+    $logAction = 'Rejected flash sale for ' . $flashSale['brand'] . ' ' . $flashSale['model'];
+} else {
+    if (($flashSale['approval_status'] ?? 'Approved') !== 'Approved') {
+        flash_set($flashKey, 'Approve the flash sale before changing its live status.');
+        redirect($back);
+    }
+    $isActive = $action === 'activate' ? 1 : 0;
+    $update = $db->prepare('UPDATE flash_sales SET is_active = ?, approval_notes = ? WHERE id = ?');
+    $update->execute([$isActive, $approvalNotes !== '' ? $approvalNotes : ($flashSale['approval_notes'] ?? null), $flashSaleId]);
+    $logAction = ($isActive ? 'Re-activated' : 'Disabled') . ' flash sale for ' . $flashSale['brand'] . ' ' . $flashSale['model'];
+}
 
 log_activity(
     $db,
     $user['name'],
     str_replace('RF Chein - ', '', $flashSale['branch_name'] ?? 'System'),
-    ($isActive ? 'Re-activated' : 'Disabled') . ' flash sale for ' . $flashSale['brand'] . ' ' . $flashSale['model']
+    $logAction
 );
 
 flash_set($flashKey, 'Flash sale updated.');

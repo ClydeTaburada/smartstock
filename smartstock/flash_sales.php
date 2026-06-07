@@ -5,6 +5,7 @@ require_role(['Super Admin', 'Admin', 'Supervisor']);
 $user = current_user();
 ensure_branch_assigned($user);
 $canSelectBranch = is_super_admin($user) || is_admin_user($user);
+$canApproveFlashSales = is_executive_user($user);
 
 $fetchAllRows = static function (PDO $db, string $sql, array $params = []) {
     $stmt = $db->prepare($sql);
@@ -46,7 +47,8 @@ $flashSaleOptions = $fetchAllRows(
 
 $flashSales = $fetchAllRows(
     $db,
-    'SELECT fs.*, p.brand, p.model, p.image_url, p.color, p.selling_price AS regular_price, p.stock, b.name AS branch_name,
+  'SELECT fs.*, p.brand, p.model, p.image_url, p.color, p.selling_price AS regular_price, p.stock, b.name AS branch_name,
+      reviewer.name AS approved_by_name,
             CASE
                 WHEN fs.is_active = 0 THEN "Disabled"
                 WHEN NOW() < fs.starts_at THEN "Scheduled"
@@ -55,14 +57,18 @@ $flashSales = $fetchAllRows(
             END AS lifecycle
      FROM flash_sales fs
      INNER JOIN phones p ON p.id = fs.phone_id
-     LEFT JOIN branches b ON b.id = fs.branch_id' . $flashScopeSql . '
+   LEFT JOIN branches b ON b.id = fs.branch_id
+   LEFT JOIN users reviewer ON reviewer.id = fs.approved_by' . $flashScopeSql . '
      ORDER BY fs.is_active DESC, fs.ends_at DESC, fs.id DESC',
     $flashScopeParams
 );
 
-$flashStats = ['Live' => 0, 'Scheduled' => 0, 'Expired' => 0, 'Disabled' => 0];
+$flashStats = ['Pending' => 0, 'Live' => 0, 'Scheduled' => 0, 'Expired' => 0, 'Disabled' => 0];
 foreach ($flashSales as $flashSale) {
-    $flashStats[$flashSale['lifecycle']] = ($flashStats[$flashSale['lifecycle']] ?? 0) + 1;
+  if (($flashSale['approval_status'] ?? 'Approved') === 'Pending') {
+    $flashStats['Pending']++;
+  }
+  $flashStats[$flashSale['lifecycle']] = ($flashStats[$flashSale['lifecycle']] ?? 0) + 1;
 }
 
 $flash = flash_get($canSelectBranch ? 'superadmin' : 'dashboard');
@@ -91,11 +97,12 @@ $defaultEnd = date('Y-m-d\TH:i', strtotime('+2 days'));
   select,input,textarea{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:12px;font:inherit;background:#fff;color:var(--text)} textarea{min-height:100px;resize:vertical}
   .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:#fff;cursor:pointer;font:inherit;color:var(--text)} .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
   .btn-primary:hover{background:var(--accent-2)} .btn-danger{background:#fff5f5;color:var(--bad);border-color:#fecaca}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}.stat .n{font-size:28px;font-weight:800}.stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:18px}.stat{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}.stat .n{font-size:28px;font-weight:800}.stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
   .grid{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:18px;align-items:start}.grid>.card{min-width:0}.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:18px;box-shadow:0 24px 60px -46px rgba(15,23,42,.22)}.card h2{margin:0 0 14px;font-size:18px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid2>div{min-width:0}.grid2-datetime{grid-template-columns:1fr}input[type="datetime-local"]{min-width:0}
   table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:12px 10px;border-bottom:1px solid #edf1f6;font-size:14px;vertical-align:top} th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-  .pill{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700}.live{background:#dcfce7;color:#166534}.scheduled{background:#fff7ed;color:#9a3412}.expired{background:#eef2ff;color:#4338ca}.disabled{background:#f3f4f6;color:#4b5563}
+  .pill{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700}.live{background:#dcfce7;color:#166534}.scheduled{background:#fff7ed;color:#9a3412}.expired{background:#eef2ff;color:#4338ca}.disabled{background:#f3f4f6;color:#4b5563}.pending-review{background:#fff7d6;color:#8a5a12}.approved-review{background:#e6f4ff;color:#0c447c}.rejected-review{background:#fde8e8;color:#a32d2d}
   .money-old{color:var(--muted);text-decoration:line-through;font-size:12px}.money-new{font-weight:800;color:var(--accent)} .meta{font-size:12px;color:var(--muted)}
+  .discount-chip{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#fff1e8;color:var(--accent-2);font-size:11px;font-weight:800;margin-top:6px}
   .product-cell{display:flex;align-items:center;gap:12px}.product-thumb{width:52px;height:52px;border-radius:14px;object-fit:cover;border:1px solid var(--border);background:#fff7ed;flex-shrink:0}.product-thumb.placeholder{display:inline-flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px}
   .table-wrap{width:100%;overflow-x:auto}.table-wrap table{min-width:680px}
   .empty{padding:26px 10px;color:var(--muted);text-align:center}.tiny{font-size:12px;color:var(--muted)}
@@ -132,6 +139,7 @@ $defaultEnd = date('Y-m-d\TH:i', strtotime('+2 days'));
   </div>
 
   <div class="stats">
+    <div class="stat"><div class="l">Pending approval</div><div class="n"><?= (int)$flashStats['Pending'] ?></div></div>
     <div class="stat"><div class="l">Live now</div><div class="n"><?= (int)$flashStats['Live'] ?></div></div>
     <div class="stat"><div class="l">Scheduled</div><div class="n"><?= (int)$flashStats['Scheduled'] ?></div></div>
     <div class="stat"><div class="l">Expired</div><div class="n"><?= (int)$flashStats['Expired'] ?></div></div>
@@ -141,6 +149,7 @@ $defaultEnd = date('Y-m-d\TH:i', strtotime('+2 days'));
   <div class="grid">
     <div class="card">
       <h2>Create flash sale</h2>
+      <?php if (!$canApproveFlashSales): ?><div class="flash" style="margin-bottom:14px">Supervisor flash sales are submitted for CEO/Admin approval before they go live.</div><?php endif; ?>
       <form method="post" action="actions/create_flash_sale.php">
         <div style="margin-bottom:12px">
           <label class="tiny">Title</label>
@@ -190,10 +199,18 @@ $defaultEnd = date('Y-m-d\TH:i', strtotime('+2 days'));
       <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Product</th><th>Window</th><th>Price</th><th>Status</th><th>Action</th></tr>
+          <tr><th>Product</th><th>Window</th><th>Price</th><th>Approval</th><th>Status</th><th>Action</th></tr>
         </thead>
         <tbody>
           <?php foreach ($flashSales as $flashSale): ?>
+            <?php
+              $discountPercent = (float)$flashSale['regular_price'] > 0
+                ? round((((float)$flashSale['regular_price'] - (float)$flashSale['sale_price']) / (float)$flashSale['regular_price']) * 100)
+                : 0;
+              $approvalClass = ($flashSale['approval_status'] ?? 'Approved') === 'Pending'
+                ? 'pending-review'
+                : (($flashSale['approval_status'] ?? 'Approved') === 'Rejected' ? 'rejected-review' : 'approved-review');
+            ?>
             <tr>
               <td>
                 <div class="product-cell">
@@ -205,6 +222,7 @@ $defaultEnd = date('Y-m-d\TH:i', strtotime('+2 days'));
                   <div>
                     <strong><?= e($flashSale['brand'] . ' ' . $flashSale['model']) ?></strong>
                     <div class="meta"><?= e(str_replace('RF Chein - ', '', $flashSale['branch_name'] ?? '—')) ?><?= !empty($flashSale['color']) ? ' · ' . e($flashSale['color']) : '' ?></div>
+                    <?php if ($discountPercent > 0): ?><div class="discount-chip"><?= (int)$discountPercent ?>% off</div><?php endif; ?>
                   </div>
                 </div>
               </td>
@@ -217,11 +235,33 @@ $defaultEnd = date('Y-m-d\TH:i', strtotime('+2 days'));
                 <div class="money-old"><?= e(peso($flashSale['regular_price'])) ?></div>
               </td>
               <td>
+                <span class="pill <?= e($approvalClass) ?>"><?= e($flashSale['approval_status'] ?? 'Approved') ?></span>
+                <div class="meta" style="margin-top:6px">
+                  <?php if (!empty($flashSale['approved_by_name'])): ?>Reviewed by <?= e($flashSale['approved_by_name']) ?><?php else: ?>Awaiting review<?php endif; ?>
+                </div>
+              </td>
+              <td>
                 <?php $class = strtolower($flashSale['lifecycle']); ?>
                 <span class="pill <?= e($class) ?>"><?= e($flashSale['lifecycle']) ?></span>
               </td>
               <td>
-                <?php if ((int)$flashSale['is_active'] === 1): ?>
+                <?php if ($canApproveFlashSales && ($flashSale['approval_status'] ?? 'Approved') === 'Pending'): ?>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <form method="post" action="actions/toggle_flash_sale.php">
+                      <input type="hidden" name="id" value="<?= (int)$flashSale['id'] ?>">
+                      <input type="hidden" name="action" value="approve">
+                      <button class="btn btn-primary" type="submit"><i class="ti ti-check"></i> Approve</button>
+                    </form>
+                    <form method="post" action="actions/toggle_flash_sale.php">
+                      <input type="hidden" name="id" value="<?= (int)$flashSale['id'] ?>">
+                      <input type="hidden" name="action" value="reject">
+                      <input type="hidden" name="approval_notes" value="Rejected from flash sale board">
+                      <button class="btn btn-danger" type="submit"><i class="ti ti-x"></i> Reject</button>
+                    </form>
+                  </div>
+                <?php elseif (($flashSale['approval_status'] ?? 'Approved') !== 'Approved'): ?>
+                  <span class="tiny">Waiting for CEO/Admin</span>
+                <?php elseif ((int)$flashSale['is_active'] === 1): ?>
                   <form method="post" action="actions/toggle_flash_sale.php">
                     <input type="hidden" name="id" value="<?= (int)$flashSale['id'] ?>">
                     <input type="hidden" name="action" value="disable">

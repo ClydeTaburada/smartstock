@@ -5,6 +5,7 @@ require_role(['Super Admin', 'Admin', 'Supervisor']);
 $user = current_user();
 $flashKey = (is_super_admin($user) || is_admin_user($user)) ? 'superadmin' : 'dashboard';
 $back = '../flash_sales.php';
+$isExecutive = is_executive_user($user);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect($back);
@@ -65,7 +66,7 @@ $overlapStmt = $db->prepare(
     'SELECT COUNT(*)
      FROM flash_sales
      WHERE phone_id = ?
-       AND is_active = 1
+    AND approval_status IN ("Pending", "Approved")
        AND NOT (ends_at < ? OR starts_at > ?)'
 );
 $overlapStmt->execute([$phoneId, $scheduleStart, $scheduleEnd]);
@@ -74,9 +75,15 @@ if ((int)$overlapStmt->fetchColumn() > 0) {
     redirect($back);
 }
 
+$approvalStatus = $isExecutive ? 'Approved' : 'Pending';
+$approvalNotes = $isExecutive ? 'Created directly from executive board.' : 'Awaiting CEO/Admin approval.';
+$approvedBy = $isExecutive ? ($user['id'] ?? null) : null;
+$approvedAt = $isExecutive ? date('Y-m-d H:i:s') : null;
+$isActive = $isExecutive ? 1 : 0;
+
 $insert = $db->prepare(
-    'INSERT INTO flash_sales (phone_id, branch_id, title, promo_label, sale_price, description, starts_at, ends_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO flash_sales (phone_id, branch_id, title, promo_label, sale_price, description, starts_at, ends_at, is_active, approval_status, approval_notes, approved_by, approved_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 $insert->execute([
     $phoneId,
@@ -87,6 +94,11 @@ $insert->execute([
     $description !== '' ? $description : null,
     $scheduleStart,
     $scheduleEnd,
+    $isActive,
+    $approvalStatus,
+    $approvalNotes,
+    $approvedBy,
+    $approvedAt,
     $user['id'] ?? null,
 ]);
 
@@ -96,6 +108,12 @@ log_activity(
     str_replace('RF Chein - ', '', $phone['branch_name'] ?? 'System'),
     'Scheduled flash sale for ' . $phone['brand'] . ' ' . $phone['model'] . ' at ' . peso($salePrice)
 );
+
+flash_set($flashKey, 'Flash sale scheduled for ' . $phone['brand'] . ' ' . $phone['model'] . '.');
+if (!$isExecutive) {
+    flash_set($flashKey, 'Flash sale submitted for executive approval.');
+    redirect($back);
+}
 
 flash_set($flashKey, 'Flash sale scheduled for ' . $phone['brand'] . ' ' . $phone['model'] . '.');
 redirect($back);

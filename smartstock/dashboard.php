@@ -67,6 +67,26 @@ $branchDirectSalesParams = $selectedBranchId > 0 ? [$selectedBranchId] : [];
 
 // --- Metrics -----------------------------------------------------------------
 $monthStart = date('Y-m-01');
+$todayRevenue = (float)$fetchScalar(
+  $db,
+  "SELECT COALESCE(SUM(price),0) FROM sales WHERE sale_date = CURDATE() AND status='Completed'" . $branchDirectSalesSql,
+  $branchDirectSalesParams
+);
+$todaySales = (int)$fetchScalar(
+  $db,
+  "SELECT COUNT(*) FROM sales WHERE sale_date = CURDATE() AND status='Completed'" . $branchDirectSalesSql,
+  $branchDirectSalesParams
+);
+$weekRevenue = (float)$fetchScalar(
+  $db,
+  "SELECT COALESCE(SUM(price),0) FROM sales WHERE YEARWEEK(sale_date,1) = YEARWEEK(CURDATE(),1) AND status='Completed'" . $branchDirectSalesSql,
+  $branchDirectSalesParams
+);
+$weekSales = (int)$fetchScalar(
+  $db,
+  "SELECT COUNT(*) FROM sales WHERE YEARWEEK(sale_date,1) = YEARWEEK(CURDATE(),1) AND status='Completed'" . $branchDirectSalesSql,
+  $branchDirectSalesParams
+);
 $revenueMonth = (float)$fetchScalar(
   $db,
   "SELECT COALESCE(SUM(price),0) FROM sales WHERE sale_date >= ? AND status='Completed'" . $branchDirectSalesSql,
@@ -117,9 +137,10 @@ $inventory = $fetchAllRows($db, "
 
 // --- Recent sales ------------------------------------------------------------
 $sales = $fetchAllRows($db, "
-  SELECT s.*, b.name AS branch_name
+  SELECT s.*, b.name AS branch_name, u.name AS seller_name
   FROM sales s
   LEFT JOIN branches b ON b.id = s.branch_id
+  LEFT JOIN users u ON u.id = s.user_id
   WHERE 1=1
   " . $branchSalesSql . "
     ORDER BY sale_date DESC, id DESC
@@ -297,6 +318,20 @@ $movementLogs = $fetchAllRows($db, "
   ORDER BY il.created_at DESC, il.id DESC
   LIMIT 12
 ", $selectedBranchId > 0 ? [$selectedBranchId] : []);
+$movementMonitor = $fetchAllRows($db, "
+  SELECT p.brand, p.model, p.series, p.storage, p.ram, p.color, p.stock,
+         COALESCE((SELECT COUNT(*) FROM sales s WHERE s.phone_id = p.id AND s.status = 'Completed' AND s.sale_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)),0) AS sold_30d
+  FROM phones p
+  WHERE p.is_listed = 1
+  " . $branchDirectPhoneSql . "
+  ORDER BY sold_30d DESC, p.stock ASC, p.brand ASC, p.model ASC
+  LIMIT 12
+", $branchDirectPhoneParams);
+$inventoryValue = (float)$fetchScalar(
+  $db,
+  "SELECT COALESCE(SUM(stock * selling_price),0) FROM phones WHERE is_listed=1" . $branchDirectPhoneSql,
+  $branchDirectPhoneParams
+);
 
 // --- Decision Support System --------------------------------------------------
 $velMap = [];
@@ -369,6 +404,275 @@ usort($lowMargin,  function($a,$b){ return $a['margin'] <=> $b['margin']; });
 usort($highMargin, function($a,$b){ return $b['margin'] <=> $a['margin']; });
 $lowMargin  = array_slice($lowMargin, 0, 5);
 $highMargin = array_slice($highMargin, 0, 5);
+
+$userSalesScopeSql = $selectedBranchId > 0 ? ' AND branch_id = ?' : '';
+$userSalesScopeParams = $selectedBranchId > 0 ? [$selectedBranchId] : [];
+$userSalesTodayCount = $canRecordSales ? (int)$fetchScalar(
+  $db,
+  "SELECT COUNT(*) FROM sales WHERE status='Completed' AND user_id = ? AND sale_date = CURDATE()" . $userSalesScopeSql,
+  array_merge([(int)$user['id']], $userSalesScopeParams)
+) : 0;
+$userRevenueToday = $canRecordSales ? (float)$fetchScalar(
+  $db,
+  "SELECT COALESCE(SUM(price),0) FROM sales WHERE status='Completed' AND user_id = ? AND sale_date = CURDATE()" . $userSalesScopeSql,
+  array_merge([(int)$user['id']], $userSalesScopeParams)
+) : 0.0;
+$userSalesMonthCount = $canRecordSales ? (int)$fetchScalar(
+  $db,
+  "SELECT COUNT(*) FROM sales WHERE status='Completed' AND user_id = ? AND sale_date >= ?" . $userSalesScopeSql,
+  array_merge([(int)$user['id'], $monthStart], $userSalesScopeParams)
+) : 0;
+$userRevenueMonth = $canRecordSales ? (float)$fetchScalar(
+  $db,
+  "SELECT COALESCE(SUM(price),0) FROM sales WHERE status='Completed' AND user_id = ? AND sale_date >= ?" . $userSalesScopeSql,
+  array_merge([(int)$user['id'], $monthStart], $userSalesScopeParams)
+) : 0.0;
+$userRevenueSharePct = $revenueMonth > 0 ? (int)round(($userRevenueMonth / $revenueMonth) * 100) : 0;
+$personalInquiryQueue = $canViewInquiries ? (int)$fetchScalar(
+  $db,
+  "SELECT COUNT(*) FROM inquiries WHERE status IN ('New','Contacted') AND (assigned_user_id = ? OR assigned_user_id IS NULL)" . ($selectedBranchId > 0 ? ' AND branch_id = ?' : ''),
+  array_merge([(int)$user['id']], $selectedBranchId > 0 ? [$selectedBranchId] : [])
+) : 0;
+$monthSeries = array_values($months);
+$currentMonthRevenue = (float)($monthSeries ? $monthSeries[count($monthSeries) - 1] : 0);
+$previousMonthRevenue = (float)(count($monthSeries) > 1 ? $monthSeries[count($monthSeries) - 2] : 0);
+if ($previousMonthRevenue > 0) {
+  $branchRevenueMomentumPercent = (int)round((($currentMonthRevenue - $previousMonthRevenue) / $previousMonthRevenue) * 100);
+  if ($branchRevenueMomentumPercent > 0) {
+    $branchRevenueMomentumText = 'Month-to-date revenue is up ' . abs($branchRevenueMomentumPercent) . '% versus last month.';
+  } elseif ($branchRevenueMomentumPercent < 0) {
+    $branchRevenueMomentumText = 'Month-to-date revenue is down ' . abs($branchRevenueMomentumPercent) . '% versus last month.';
+  } else {
+    $branchRevenueMomentumText = 'Month-to-date revenue is flat versus last month.';
+  }
+} elseif ($currentMonthRevenue > 0) {
+  $branchRevenueMomentumText = 'Revenue is active this month, but there is no prior-month baseline in the six-month trend yet.';
+} else {
+  $branchRevenueMomentumText = 'No completed branch revenue is visible in the latest month of the trend yet.';
+}
+
+if ($isSupervisor) {
+  $serviceBacklogCopy = ($openInquiryCount + $pendingTransferCount) > 0
+    ? $openInquiryCount . ' open inquir' . ($openInquiryCount === 1 ? 'y' : 'ies') . ' and ' . $pendingTransferCount . ' pending transfer' . ($pendingTransferCount === 1 ? '' : 's') . ' are waiting in the branch workflow.'
+    : 'Customer messages and transfer requests are both clear right now.';
+  $roleOverviewLead = $selectedBranchName . ' generated ' . peso($weekRevenue) . ' from ' . $weekSales . ' completed sale' . ($weekSales === 1 ? '' : 's') . ' this week. ' . ($lowStockCount > 0
+    ? $lowStockCount . ' listed item' . ($lowStockCount === 1 ? ' is' : 's are') . ' already low on stock, so replenishment belongs in todays decisions.'
+    : 'Stock levels are stable enough to focus on growth, customer follow-up, and transfer cleanup.');
+  $overviewInsightCards = [
+    [
+      'tone' => $currentMonthRevenue >= $previousMonthRevenue ? 'success' : 'warn',
+      'icon' => 'chart-bar',
+      'title' => 'Revenue momentum',
+      'body' => $branchRevenueMomentumText . ' Today delivered ' . peso($todayRevenue) . ' from ' . $todaySales . ' sale' . ($todaySales === 1 ? '' : 's') . '.',
+    ],
+    [
+      'tone' => $lowStockCount > 0 ? 'warn' : 'success',
+      'icon' => 'package',
+      'title' => 'Inventory pressure',
+      'body' => $lowStockCount > 0
+        ? $lowStockCount . ' SKU' . ($lowStockCount === 1 ? ' is' : 's are') . ' low on stock and ' . count($reorderList) . ' fast mover' . (count($reorderList) === 1 ? '' : 's') . ' already signal replenishment.'
+        : 'No immediate stock shortage is visible in the branch today.',
+    ],
+    [
+      'tone' => ($openInquiryCount + $pendingTransferCount) > 0 ? 'info' : 'success',
+      'icon' => 'messages',
+      'title' => 'Customer and transfer queue',
+      'body' => $serviceBacklogCopy,
+    ],
+  ];
+  $overviewQuickActions = [];
+  if ($openInquiryCount > 0) {
+    $overviewQuickActions[] = [
+      'title' => 'Reply to branch inquiries',
+      'note' => 'Keep open customer conversations moving before leads go cold.',
+      'href' => $inquiriesHref,
+      'cta' => 'Open inquiries',
+      'primary' => true,
+    ];
+  }
+  if ($pendingTransferCount > 0) {
+    $overviewQuickActions[] = [
+      'title' => 'Monitor transfers',
+      'note' => 'Review requests that still block stock rebalancing between branches.',
+      'page' => 'transfers',
+      'cta' => 'Open transfers',
+      'primary' => true,
+    ];
+  }
+  $overviewQuickActions[] = [
+    'title' => 'Print monthly branch report',
+    'note' => 'Generate the ready-to-print revenue and inventory report with the SmartStock logo.',
+    'js' => 'printBranchReport()',
+    'cta' => 'Print report',
+    'primary' => false,
+  ];
+  $overviewQuickActions[] = [
+    'title' => 'Open analytics',
+    'note' => 'Review trend, sell-through, and the printable monthly summary in one place.',
+    'page' => 'analytics',
+    'cta' => 'Analytics',
+    'primary' => false,
+  ];
+  $overviewQuickActions[] = [
+    'title' => 'Open decision support',
+    'note' => 'Go straight to reorder guidance, movement monitoring, and slow-stock decisions.',
+    'page' => 'decisions',
+    'cta' => 'Decision support',
+    'primary' => false,
+  ];
+  if ($canViewFlashSales) {
+    $overviewQuickActions[] = [
+      'title' => 'Manage flash sales',
+      'note' => 'Create or review branch promotions and approval status from the promo board.',
+      'href' => 'flash_sales.php',
+      'cta' => 'Flash sales',
+      'primary' => false,
+    ];
+  }
+  $overviewPriorityItems = [];
+  if ($openInquiryCount > 0) {
+    $overviewPriorityItems[] = [
+      'level' => 'critical',
+      'icon' => 'messages',
+      'title' => 'Reply to ' . $openInquiryCount . ' open inquir' . ($openInquiryCount === 1 ? 'y' : 'ies'),
+      'note' => 'These are current customer demand signals and deserve same-day response.',
+      'href' => $inquiriesHref,
+      'cta' => 'Open inquiries',
+    ];
+  }
+  if ($lowStockCount > 0) {
+    $topReorder = $reorderList[0] ?? null;
+    $overviewPriorityItems[] = [
+      'level' => 'high',
+      'icon' => 'package',
+      'title' => 'Replenish ' . $lowStockCount . ' low-stock SKU' . ($lowStockCount === 1 ? '' : 's'),
+      'note' => $topReorder
+        ? $topReorder['name'] . ' is the strongest replenishment signal in the branch right now.'
+        : 'Low-stock items are already reducing branch availability.',
+      'page' => 'decisions',
+      'cta' => 'Review stock',
+    ];
+  }
+  if ($pendingTransferCount > 0) {
+    $overviewPriorityItems[] = [
+      'level' => 'high',
+      'icon' => 'arrows-transfer-up-down',
+      'title' => 'Track ' . $pendingTransferCount . ' pending transfer' . ($pendingTransferCount === 1 ? '' : 's'),
+      'note' => 'Transfers are part of the branch stock plan and should not sit idle in the queue.',
+      'page' => 'transfers',
+      'cta' => 'Open transfers',
+    ];
+  }
+  if (count($deadStock) > 0) {
+    $oldestDeadStock = $deadStock[0];
+    $overviewPriorityItems[] = [
+      'level' => 'medium',
+      'icon' => 'clock-hour-4',
+      'title' => 'Move ' . count($deadStock) . ' slow-moving item' . (count($deadStock) === 1 ? '' : 's'),
+      'note' => $oldestDeadStock['name'] . ' has been idle the longest and may need markdown, bundle, or feature placement.',
+      'page' => 'decisions',
+      'cta' => 'Open decisions',
+    ];
+  }
+} else {
+  $roleOverviewLead = $userSalesMonthCount > 0
+    ? 'You have recorded ' . $userSalesMonthCount . ' completed sale' . ($userSalesMonthCount === 1 ? '' : 's') . ' worth ' . peso($userRevenueMonth) . ' this month, which is ' . $userRevenueSharePct . '% of branch revenue. Use the shortcuts below to keep sales and customer replies moving without leaving the dashboard.'
+    : 'You have a clean personal sales slate this month. Use this dashboard to record the next completed sale quickly and see which customer conversations need attention right now.';
+  $staffQueueCopy = $personalInquiryQueue > 0
+    ? $personalInquiryQueue . ' inquiry thread' . ($personalInquiryQueue === 1 ? ' is' : 's are') . ' in the queue you can handle today.'
+    : 'Your inquiry queue is clear right now, so you can focus on closing the next sale.';
+  $overviewInsightCards = [
+    [
+      'tone' => $userSalesTodayCount > 0 ? 'success' : 'info',
+      'icon' => 'receipt',
+      'title' => 'Your sales today',
+      'body' => $userSalesTodayCount > 0
+        ? $userSalesTodayCount . ' completed sale' . ($userSalesTodayCount === 1 ? '' : 's') . ' worth ' . peso($userRevenueToday) . ' are already under your name today.'
+        : 'No completed sale is under your name yet today.',
+    ],
+    [
+      'tone' => $userSalesMonthCount > 0 ? 'success' : 'info',
+      'icon' => 'chart-bar',
+      'title' => 'Monthly contribution',
+      'body' => $userSalesMonthCount > 0
+        ? 'You account for ' . $userRevenueSharePct . '% of branch revenue this month.'
+        : 'Branch month-to-date revenue is ' . peso($revenueMonth) . '; your next recorded sale will move that number immediately.',
+    ],
+    [
+      'tone' => $personalInquiryQueue > 0 ? 'warn' : 'success',
+      'icon' => 'messages',
+      'title' => 'Customer queue',
+      'body' => $staffQueueCopy,
+    ],
+  ];
+  $overviewQuickActions = [
+    [
+      'title' => 'Record the next sale',
+      'note' => 'Open the quick sales form without leaving the dashboard.',
+      'js' => 'openSaleModal()',
+      'cta' => 'New sale',
+      'primary' => true,
+    ],
+    [
+      'title' => 'Reply to inquiries',
+      'note' => 'Check the branch inbox and answer customers before the lead goes cold.',
+      'href' => $inquiriesHref,
+      'cta' => 'Open inquiries',
+      'primary' => $personalInquiryQueue > 0,
+    ],
+    [
+      'title' => 'Review sales history',
+      'note' => 'See recent receipts, customer names, and completed transactions.',
+      'page' => 'sales',
+      'cta' => 'Open sales',
+      'primary' => false,
+    ],
+  ];
+  $overviewPriorityItems = [];
+  if ($personalInquiryQueue > 0) {
+    $overviewPriorityItems[] = [
+      'level' => 'high',
+      'icon' => 'messages',
+      'title' => 'Reply to ' . $personalInquiryQueue . ' inquiry thread' . ($personalInquiryQueue === 1 ? '' : 's'),
+      'note' => 'Customers are waiting for branch answers on price, availability, or reservation.',
+      'href' => $inquiriesHref,
+      'cta' => 'Open inquiries',
+    ];
+  }
+  if ($userSalesTodayCount === 0 && $canRecordSales) {
+    $overviewPriorityItems[] = [
+      'level' => 'medium',
+      'icon' => 'receipt',
+      'title' => 'Start with the next walk-in sale',
+      'note' => 'No completed sale is under your name yet today, so open the quick sale form when the next device is closed.',
+      'js' => 'openSaleModal()',
+      'cta' => 'New sale',
+    ];
+  }
+  if ($lowStockCount > 0) {
+    $overviewPriorityItems[] = [
+      'level' => 'medium',
+      'icon' => 'package',
+      'title' => 'Flag ' . $lowStockCount . ' low-stock item' . ($lowStockCount === 1 ? '' : 's') . ' to the supervisor',
+      'note' => 'Customers may ask for devices that are almost gone, so set expectations early and escalate shortages fast.',
+    ];
+  }
+}
+
+$overviewQuickActions = array_slice($overviewQuickActions, 0, 4);
+if (!$overviewPriorityItems) {
+  $overviewPriorityItems[] = [
+    'level' => 'medium',
+    'icon' => 'circle-check',
+    'title' => 'Your immediate queue is clear',
+    'note' => $isSupervisor
+      ? 'Use Analytics to monitor momentum and Decision Support to plan the next branch move.'
+      : 'Use the Sales and Inquiries shortcuts to stay ready for the next customer interaction.',
+    'page' => $isSupervisor ? 'analytics' : 'sales',
+    'cta' => $isSupervisor ? 'Open analytics' : 'Open sales',
+  ];
+}
+$overviewPriorityItems = array_slice($overviewPriorityItems, 0, 4);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -515,6 +819,22 @@ $highMargin = array_slice($highMargin, 0, 5);
   .profile-stat{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px;background:var(--color-background-tertiary)}
   .profile-stat-label{font-size:11px;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   .profile-stat-value{font-size:20px;font-weight:500}
+  .command-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);gap:16px;margin-bottom:16px}
+  .summary-lead{font-size:15px;line-height:1.75;color:var(--color-text-primary);margin-bottom:16px}
+  .insight-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  .insight-card{border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:14px 16px;background:linear-gradient(180deg,#ffffff 0%,#fafcfd 100%)}
+  .insight-card.success{background:#EEF9F4;border-color:#B6E4D3}
+  .insight-card.warn{background:#FFF7E8;border-color:#F3D68A}
+  .insight-card.info{background:#EEF6FF;border-color:#C9DCF4}
+  .insight-card.danger{background:#FFF0F0;border-color:#F2B4B4}
+  .insight-card-title{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--color-text-secondary);margin-bottom:8px}
+  .insight-card-body{font-size:13px;line-height:1.6;color:var(--color-text-primary)}
+  .shortcut-grid,.priority-list{display:grid;gap:10px}
+  .shortcut-card,.priority-item{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:linear-gradient(180deg,#ffffff 0%,#fafcfd 100%)}
+  .shortcut-copy,.priority-copy{display:grid;gap:4px}
+  .shortcut-title,.priority-title{font-size:13px;font-weight:700;color:var(--color-text-primary)}
+  .shortcut-note,.priority-note,.chart-summary{font-size:12px;color:var(--color-text-secondary);line-height:1.6}
+  .priority-actions{display:flex;gap:8px;flex-wrap:wrap}
   .transfer-stack{display:grid;gap:12px}
   .transfer-card{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px;background:linear-gradient(180deg,#ffffff 0%,#fafcfd 100%)}
   .transfer-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
@@ -544,8 +864,8 @@ $highMargin = array_slice($highMargin, 0, 5);
   .product-thumb.placeholder{display:inline-flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);font-size:18px}
   .product-cell strong{display:block;font-size:13px}
   textarea{min-height:92px;resize:vertical}
-  @media (max-width: 1100px){.metrics,.dss-grid,.profile-grid,.abc-summary{grid-template-columns:repeat(2,1fr)}.grid2,.form-grid,.form-grid-3{grid-template-columns:1fr}}
-  @media (max-width: 760px){.app{display:block}.sidebar{width:auto}.topbar{flex-direction:column;align-items:flex-start;gap:10px}.topbar-actions{flex-wrap:wrap}.metrics,.dss-grid,.profile-grid,.abc-summary{grid-template-columns:1fr}}
+  @media (max-width: 1100px){.metrics,.dss-grid,.profile-grid,.abc-summary,.insight-grid{grid-template-columns:repeat(2,1fr)}.grid2,.form-grid,.form-grid-3,.command-grid{grid-template-columns:1fr}}
+  @media (max-width: 760px){.app{display:block}.sidebar{width:auto}.topbar{flex-direction:column;align-items:flex-start;gap:10px}.topbar-actions{flex-wrap:wrap}.metrics,.dss-grid,.profile-grid,.abc-summary,.insight-grid{grid-template-columns:1fr}}
 </style>
 <link rel="stylesheet" href="system-polish.css?v=1">
 </head>
@@ -558,7 +878,7 @@ $highMargin = array_slice($highMargin, 0, 5);
       Signed in as<br><strong><?= e($user['name']) ?></strong>
       <div class="role-chip"><i class="ti ti-user-star" style="font-size:12px"></i> <?= e($roleName) ?></div>
     </div>
-    <div class="nav-item active" data-page="dashboard" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i> Overview</div>
+    <div class="nav-item active" data-page="dashboard" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
     <?php if ($canManageStock): ?>
       <div class="nav-item" data-page="inventory" onclick="nav('inventory',this)"><i class="ti ti-package"></i> Inventory</div>
     <?php endif; ?>
@@ -567,6 +887,10 @@ $highMargin = array_slice($highMargin, 0, 5);
     <?php endif; ?>
     <?php if ($canViewTransfers): ?>
       <div class="nav-item" data-page="transfers" onclick="nav('transfers',this)"><i class="ti ti-arrows-transfer-up-down"></i> Transfers</div>
+    <?php endif; ?>
+    <?php if ($isSupervisor): ?>
+      <div class="nav-item" data-page="analytics" onclick="nav('analytics',this)"><i class="ti ti-chart-bar"></i> Analytics</div>
+      <div class="nav-item" data-page="decisions" onclick="nav('decisions',this)"><i class="ti ti-brain"></i> Decision support</div>
     <?php endif; ?>
     <?php if ($canViewFlashSales): ?>
       <a class="nav-item" href="flash_sales.php"><i class="ti ti-bolt"></i> Flash sales</a>
@@ -582,7 +906,7 @@ $highMargin = array_slice($highMargin, 0, 5);
 
   <div class="main">
     <div class="topbar">
-      <h1 id="page-title">Overview</h1>
+      <h1 id="page-title">Dashboard</h1>
       <div class="topbar-actions">
         <div class="branch-switcher">
           <?php if (is_super_admin($user)): ?>
@@ -604,6 +928,9 @@ $highMargin = array_slice($highMargin, 0, 5);
           <?php if ($openInquiryCount > 0): ?><span class="notif-count"><?= (int)$openInquiryCount ?></span><?php endif; ?>
         </a>
         <span class="badge"><i class="ti ti-circle-dot" style="font-size:10px"></i> Live</span>
+        <?php if ($isSupervisor): ?>
+          <button class="btn" type="button" onclick="printBranchReport()"><i class="ti ti-printer"></i> Print monthly report</button>
+        <?php endif; ?>
         <?php if ($canRecordSales): ?>
           <button class="btn btn-primary" onclick="openSaleModal()"><i class="ti ti-plus"></i> New Sale</button>
         <?php endif; ?>
@@ -642,6 +969,91 @@ $highMargin = array_slice($highMargin, 0, 5);
             <div class="metric-label"><i class="ti ti-device-mobile"></i> Products Listed</div>
             <div class="metric-value"><?= $productsListed ?></div>
             <div class="metric-change up">Active SKUs</div>
+          </div>
+        </div>
+
+        <div class="command-grid">
+          <div class="card">
+            <div class="card-title"><i class="ti ti-layout-dashboard"></i> <?= $isSupervisor ? 'Branch command brief' : 'Your work brief' ?></div>
+            <div class="summary-lead"><?= e($roleOverviewLead) ?></div>
+            <div class="insight-grid">
+              <?php foreach ($overviewInsightCards as $insight): ?>
+                <div class="insight-card <?= e($insight['tone']) ?>">
+                  <div class="insight-card-title"><i class="ti ti-<?= e($insight['icon']) ?>"></i> <?= e($insight['title']) ?></div>
+                  <div class="insight-card-body"><?= e($insight['body']) ?></div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><i class="ti ti-bolt"></i> <?= $isSupervisor ? 'Next actions' : 'What to press next' ?></div>
+            <div class="shortcut-grid">
+              <?php foreach ($overviewQuickActions as $action): ?>
+                <div class="shortcut-card">
+                  <div class="shortcut-copy">
+                    <div class="shortcut-title"><?= e($action['title']) ?></div>
+                    <div class="shortcut-note"><?= e($action['note']) ?></div>
+                  </div>
+                  <?php if (!empty($action['js'])): ?>
+                    <button type="button" class="btn <?= !empty($action['primary']) ? 'btn-primary' : '' ?>" onclick="<?= e($action['js']) ?>"><?= e($action['cta']) ?></button>
+                  <?php elseif (!empty($action['href'])): ?>
+                    <a class="btn <?= !empty($action['primary']) ? 'btn-primary' : '' ?>" href="<?= e($action['href']) ?>"><?= e($action['cta']) ?></a>
+                  <?php elseif (!empty($action['page'])): ?>
+                    <button type="button" class="btn <?= !empty($action['primary']) ? 'btn-primary' : '' ?>" onclick="nav('<?= e($action['page']) ?>', document.querySelector('.nav-item[data-page=&quot;<?= e($action['page']) ?>&quot;]'))"><?= e($action['cta']) ?></button>
+                  <?php endif; ?>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="card-title"><i class="ti ti-calendar-stats"></i> Revenue and activity pulse</div>
+            <div class="profile-grid">
+              <div class="profile-stat"><div class="profile-stat-label">Today revenue</div><div class="profile-stat-value"><?= e(peso($todayRevenue)) ?></div></div>
+              <div class="profile-stat"><div class="profile-stat-label">Today sales</div><div class="profile-stat-value"><?= (int)$todaySales ?></div></div>
+              <div class="profile-stat"><div class="profile-stat-label">This week revenue</div><div class="profile-stat-value"><?= e(peso($weekRevenue)) ?></div></div>
+              <div class="profile-stat"><div class="profile-stat-label">This week sales</div><div class="profile-stat-value"><?= (int)$weekSales ?></div></div>
+            </div>
+            <div class="mini-chart" style="margin-top:16px">
+              <?php foreach ($months as $ym => $rev): ?>
+                <div class="mini-col">
+                  <div class="mini-bar-wrap"><div class="mini-bar" style="height:<?= max(4, (int)round(($rev / $maxMonthRev) * 100)) ?>%"></div></div>
+                  <div class="mini-label"><?= e(date('M', strtotime($ym . '-01'))) ?></div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+            <div class="chart-summary"><?= e($branchRevenueMomentumText) ?> <?= e($isSupervisor ? 'Use Analytics for the full trend and Decision Support for the next stock action.' : 'Use this pace view to answer customers quickly and move to the next sale with confidence.') ?></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><i class="ti ti-target-arrow"></i> Needs attention now</div>
+            <div class="priority-list">
+              <?php foreach ($overviewPriorityItems as $item): ?>
+                <div class="priority-item">
+                  <div class="priority-copy">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <span class="prio-pill prio-<?= e($item['level']) ?>"><?= e(ucfirst($item['level'])) ?></span>
+                      <span class="priority-title"><i class="ti ti-<?= e($item['icon']) ?>" style="margin-right:6px;color:#0F766E"></i><?= e($item['title']) ?></span>
+                    </div>
+                    <div class="priority-note"><?= e($item['note']) ?></div>
+                  </div>
+                  <?php if (!empty($item['js']) || !empty($item['href']) || !empty($item['page'])): ?>
+                    <div class="priority-actions">
+                      <?php if (!empty($item['js'])): ?>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="<?= e($item['js']) ?>"><?= e($item['cta']) ?></button>
+                      <?php elseif (!empty($item['href'])): ?>
+                        <a class="btn btn-primary btn-sm" href="<?= e($item['href']) ?>"><?= e($item['cta']) ?></a>
+                      <?php elseif (!empty($item['page'])): ?>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="nav('<?= e($item['page']) ?>', document.querySelector('.nav-item[data-page=&quot;<?= e($item['page']) ?>&quot;]'))"><?= e($item['cta']) ?></button>
+                      <?php endif; ?>
+                    </div>
+                  <?php endif; ?>
+                </div>
+              <?php endforeach; ?>
+            </div>
           </div>
         </div>
 
@@ -733,13 +1145,14 @@ $highMargin = array_slice($highMargin, 0, 5);
         </div>
         <div class="card" style="padding:0">
           <table>
-            <thead><tr><th>Product</th><th>Condition</th><th>Storage</th><th>Branch</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead>
+            <thead><tr><th>Brand</th><th>Product</th><th>Series</th><th>Variant</th><th>Color</th><th>Branch</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead>
             <tbody>
               <?php foreach ($inventory as $r):
                 $status = $r['stock'] == 0 ? 'out' : ($r['stock'] <= 3 ? 'low' : 'in-stock');
                 $statusLabel = $status === 'in-stock' ? 'Sufficient' : ($status === 'low' ? 'Low stock' : 'Out of stock');
               ?>
                 <tr>
+                  <td><?= e($r['brand']) ?></td>
                   <td>
                     <div class="product-cell">
                       <?php if (!empty($r['image_url'])): ?>
@@ -748,13 +1161,14 @@ $highMargin = array_slice($highMargin, 0, 5);
                         <span class="product-thumb placeholder"><i class="ti ti-device-mobile"></i></span>
                       <?php endif; ?>
                       <div>
-                        <strong><?= e($r['brand'] . ' ' . $r['model']) ?></strong>
-                        <div class="topbar-note"><?= e($r['color'] ?: 'Catalog item') ?></div>
+                        <strong><?= e($r['model']) ?></strong>
+                        <div class="topbar-note"><?= e($r['condition']) ?></div>
                       </div>
                     </div>
                   </td>
-                  <td><?= e($r['condition']) ?></td>
-                  <td><?= e($r['storage']) ?></td>
+                  <td><?= e($r['series'] ?: strtok((string)$r['model'], ' ')) ?></td>
+                  <td><?= e(trim(implode(' / ', array_filter([$r['storage'], $r['ram'] ? $r['ram'] . ' RAM' : ''])))) ?></td>
+                  <td><?= e($r['color'] ?: '—') ?></td>
                   <td style="font-size:12px;color:var(--color-text-secondary)"><?= e(str_replace('RF Chein - ', '', $r['branch_name'] ?? '—')) ?></td>
                   <td><?= e(peso($r['selling_price'])) ?></td>
                   <td style="font-weight:500"><?= (int)$r['stock'] ?></td>
@@ -776,20 +1190,21 @@ $highMargin = array_slice($highMargin, 0, 5);
         </div>
         <div class="card" style="padding:0">
           <table>
-            <thead><tr><th>Transaction ID</th><th>Product</th><th>Customer</th><th>Branch</th><th>Price</th><th>Date</th><th>Status</th></tr></thead>
+            <thead><tr><th>Receipt #</th><th>Product</th><th>Seller</th><th>Customer</th><th>Date</th><th>Branch</th><th>Price</th><th>Status</th></tr></thead>
             <tbody>
               <?php foreach ($sales as $s): ?>
                 <tr>
                   <td style="color:var(--color-text-secondary);font-size:12px"><?= e($s['txn_id']) ?></td>
                   <td><?= e($s['product_name']) ?></td>
+                  <td><?= e($s['seller_name'] ?: 'System') ?></td>
                   <td><?= e($s['customer']) ?></td>
+                  <td><?= e(date('M j, Y', strtotime($s['sale_date']))) ?></td>
                   <td style="font-size:12px;color:var(--color-text-secondary)"><?= e($shortBranchName($s['branch_name'] ?? '—')) ?></td>
                   <td style="font-weight:500"><?= e(peso($s['price'])) ?></td>
-                  <td><?= e(date('M j, Y', strtotime($s['sale_date']))) ?></td>
                   <td><span class="status-pill in-stock"><?= e($s['status']) ?></span></td>
                 </tr>
               <?php endforeach; ?>
-              <?php if (!$sales): ?><tr><td colspan="7" style="text-align:center;color:var(--color-text-tertiary);padding:24px">No sales recorded yet.</td></tr><?php endif; ?>
+              <?php if (!$sales): ?><tr><td colspan="8" style="text-align:center;color:var(--color-text-tertiary);padding:24px">No sales recorded yet.</td></tr><?php endif; ?>
             </tbody>
           </table>
         </div>
@@ -1056,6 +1471,19 @@ $highMargin = array_slice($highMargin, 0, 5);
             </tbody>
           </table>
         </div>
+
+        <?php if ($isSupervisor): ?>
+          <div class="card">
+            <div class="card-title"><i class="ti ti-printer"></i> Monthly printable branch report</div>
+            <div class="profile-grid">
+              <div class="profile-stat"><div class="profile-stat-label">Monthly revenue</div><div class="profile-stat-value"><?= e(peso($revenueMonth)) ?></div></div>
+              <div class="profile-stat"><div class="profile-stat-label">Completed sales</div><div class="profile-stat-value"><?= (int)$salesMonth ?></div></div>
+              <div class="profile-stat"><div class="profile-stat-label">Inventory value</div><div class="profile-stat-value"><?= e(peso($inventoryValue)) ?></div></div>
+              <div class="profile-stat"><div class="profile-stat-label">Units in stock</div><div class="profile-stat-value"><?= (int)$unitsInStock ?></div></div>
+            </div>
+            <div class="page-intro" style="margin-top:12px">This report is formatted for branch printing and includes the SmartStock logo, monthly sales summary, inventory snapshot, and top-performing products.</div>
+          </div>
+        <?php endif; ?>
       </div>
 
       <!-- DECISIONS -->
@@ -1120,6 +1548,32 @@ $highMargin = array_slice($highMargin, 0, 5);
               </tbody>
             </table>
           </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title"><i class="ti ti-activity-heartbeat"></i> Item movement monitor</div>
+          <table>
+            <thead><tr><th>Brand</th><th>Product</th><th>Series</th><th>Variant</th><th>Color</th><th>Stock</th><th>Sold 30d</th><th>Status</th></tr></thead>
+            <tbody>
+              <?php foreach ($movementMonitor as $item): ?>
+                <?php
+                  $movementStatus = (int)$item['sold_30d'] >= 3 ? 'Fast moving' : ((int)$item['sold_30d'] === 0 ? 'Slow moving' : 'Steady');
+                  $movementClass = (int)$item['sold_30d'] >= 3 ? 'in-stock' : ((int)$item['sold_30d'] === 0 ? 'out' : 'approved');
+                ?>
+                <tr>
+                  <td><?= e($item['brand']) ?></td>
+                  <td><?= e($item['model']) ?></td>
+                  <td><?= e($item['series'] ?: strtok((string)$item['model'], ' ')) ?></td>
+                  <td><?= e(trim(implode(' / ', array_filter([$item['storage'], $item['ram'] ? $item['ram'] . ' RAM' : ''])))) ?></td>
+                  <td><?= e($item['color'] ?: '—') ?></td>
+                  <td><strong><?= (int)$item['stock'] ?></strong></td>
+                  <td><?= (int)$item['sold_30d'] ?></td>
+                  <td><span class="status-pill <?= e($movementClass) ?>"><?= e($movementStatus) ?></span></td>
+                </tr>
+              <?php endforeach; ?>
+              <?php if (!$movementMonitor): ?><tr><td colspan="8" style="text-align:center;color:var(--color-text-tertiary);padding:24px">No movement data available yet.</td></tr><?php endif; ?>
+            </tbody>
+          </table>
         </div>
 
         <div class="card" style="margin-bottom:16px">
@@ -1292,6 +1746,17 @@ $highMargin = array_slice($highMargin, 0, 5);
 
     <div class="form-row">
       <div class="form-group">
+        <label>Series</label>
+        <input type="text" name="series" placeholder="e.g. Galaxy, iPhone">
+      </div>
+      <div class="form-group">
+        <label>Color</label>
+        <input type="text" name="color" placeholder="e.g. Graphite">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
         <label>Storage</label>
         <select name="storage"><option>32GB</option><option>64GB</option><option>128GB</option><option>256GB</option><option>512GB</option></select>
       </div>
@@ -1309,6 +1774,17 @@ $highMargin = array_slice($highMargin, 0, 5);
       <div class="form-group">
         <label>Battery health (%)</label>
         <input type="number" name="battery" min="0" max="100" placeholder="e.g. 87">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Operating system</label>
+        <select name="operating_system"><option>Android</option><option>iOS</option><option>HarmonyOS</option><option>Other</option></select>
+      </div>
+      <div class="form-group">
+        <label>Upload note</label>
+        <input type="text" value="Optional front and back JPG, PNG, GIF, or WEBP up to 5MB" disabled>
       </div>
     </div>
 
@@ -1347,12 +1823,12 @@ $highMargin = array_slice($highMargin, 0, 5);
 
     <div class="form-row">
       <div class="form-group">
-        <label>Product photo</label>
+        <label>Front photo</label>
         <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.gif,.webp,image/*">
       </div>
       <div class="form-group">
-        <label>Upload note</label>
-        <input type="text" value="Optional JPG, PNG, GIF, or WEBP up to 5MB" disabled>
+        <label>Back photo</label>
+        <input type="file" name="back_image_file" accept=".jpg,.jpeg,.png,.gif,.webp,image/*">
       </div>
     </div>
 
@@ -1391,13 +1867,86 @@ $highMargin = array_slice($highMargin, 0, 5);
   </form>
 </div>
 
+<?php if ($isSupervisor): ?>
+<div id="branch-report-template" style="display:none">
+  <div style="font-family:'Plus Jakarta Sans',sans-serif;padding:28px;color:#0f172a">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px;border-bottom:2px solid #e5e7eb;padding-bottom:16px">
+      <div>
+        <div style="font-size:26px;font-weight:800;letter-spacing:-0.04em"><span style="color:#1D9E75">Smart</span>Stock</div>
+        <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#64748b;margin-top:6px">Monthly branch revenue report</div>
+      </div>
+      <div style="text-align:right;font-size:13px;color:#334155">
+        <div><strong><?= e($selectedBranchName) ?></strong></div>
+        <div><?= e(date('F Y')) ?></div>
+        <div>Generated <?= e(date('M j, Y h:i A')) ?></div>
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
+      <tr>
+        <td style="padding:10px 12px;border:1px solid #e5e7eb"><strong>Monthly revenue</strong><br><?= e(peso($revenueMonth)) ?></td>
+        <td style="padding:10px 12px;border:1px solid #e5e7eb"><strong>Monthly sales</strong><br><?= (int)$salesMonth ?></td>
+        <td style="padding:10px 12px;border:1px solid #e5e7eb"><strong>Inventory value</strong><br><?= e(peso($inventoryValue)) ?></td>
+        <td style="padding:10px 12px;border:1px solid #e5e7eb"><strong>Units in stock</strong><br><?= (int)$unitsInStock ?></td>
+      </tr>
+    </table>
+
+    <div style="font-size:16px;font-weight:700;margin-bottom:10px">Top products this month</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Product</th>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Units sold</th>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Revenue</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach (array_slice($perf, 0, 5) as $reportRow): ?>
+          <tr>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= e($reportRow['name']) ?></td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= (int)$reportRow['sold'] ?></td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= e(peso($reportRow['rev'])) ?></td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+
+    <div style="font-size:16px;font-weight:700;margin-bottom:10px">Inventory snapshot</div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Brand</th>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Product</th>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Series</th>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Variant</th>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Color</th>
+          <th style="text-align:left;padding:10px 12px;border:1px solid #e5e7eb;background:#f8fafc">Stock</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach (array_slice($inventory, 0, 10) as $reportItem): ?>
+          <tr>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= e($reportItem['brand']) ?></td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= e($reportItem['model']) ?></td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= e($reportItem['series'] ?: strtok((string)$reportItem['model'], ' ')) ?></td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= e(trim(implode(' / ', array_filter([$reportItem['storage'], $reportItem['ram'] ? $reportItem['ram'] . ' RAM' : ''])))) ?></td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= e($reportItem['color'] ?: '—') ?></td>
+            <td style="padding:10px 12px;border:1px solid #e5e7eb"><?= (int)$reportItem['stock'] ?></td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php endif; ?>
+
 <script>
 function nav(page, el){
   document.querySelectorAll('.nav-item[data-page]').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('pg-'+page).classList.add('active');
-  const titles={dashboard:'Overview',inventory:'Inventory',sales:'Sales',transfers:'Transfers',analytics:'Analytics',decisions:'Decision support'};
+  const titles={dashboard:'Dashboard',inventory:'Inventory',sales:'Sales',transfers:'Transfers',analytics:'Analytics',decisions:'Decision support'};
   document.getElementById('page-title').textContent=titles[page];
   window.location.hash = page;
 }
@@ -1411,6 +1960,16 @@ function openSaleModal(){
 function closeModal(){document.getElementById('sale-modal').classList.remove('open')}
 function openDeviceModal(){document.getElementById('device-modal').classList.add('open')}
 function closeDeviceModal(){document.getElementById('device-modal').classList.remove('open')}
+function printBranchReport(){
+  const template = document.getElementById('branch-report-template');
+  if (!template) return;
+  const reportWindow = window.open('', '_blank', 'width=1024,height=720');
+  if (!reportWindow) return;
+  reportWindow.document.write(`<!doctype html><html><head><title>Branch Monthly Report</title></head><body>${template.innerHTML}</body></html>`);
+  reportWindow.document.close();
+  reportWindow.focus();
+  reportWindow.print();
+}
 document.getElementById('sale-product')?.addEventListener('change', e => {
   const opt = e.target.selectedOptions[0];
   if (opt) document.getElementById('sale-price').value = opt.dataset.price || '';

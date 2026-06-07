@@ -305,6 +305,7 @@ nav {
   min-height: 0;
   width: 100%;
   max-width: 420px;
+  margin-left: 28px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
@@ -333,6 +334,34 @@ nav {
   padding: 24px;
   border-radius: 32px;
   animation: none;
+}
+
+.deal-discount,
+.flash-discount-chip,
+.card-discount {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 212, 71, 0.2);
+  color: var(--secondary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.deal-discount {
+  margin-top: 12px;
+}
+
+.flash-discount-chip {
+  margin-top: 10px;
+}
+
+.card-discount {
+  margin-top: 8px;
 }
 
 .deal-tag {
@@ -790,14 +819,21 @@ nav {
   background: rgba(255, 255, 255, 0.96);
 }
 
-.modal-img {
-  position: relative;
-  min-height: 100%;
-  padding: 28px;
+.modal-media-stack {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
   background:
     radial-gradient(circle at top left, rgba(255, 212, 71, 0.38), transparent 32%),
     radial-gradient(circle at bottom right, rgba(0, 65, 103, 0.18), transparent 40%),
     linear-gradient(160deg, #f7fbfe 0%, #deedf6 56%, #fff7d2 100%);
+}
+
+.modal-img {
+  position: relative;
+  min-height: 100%;
+  padding: 0;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -823,6 +859,38 @@ nav {
   justify-content: center;
   font-size: 96px;
   color: var(--secondary);
+}
+
+.modal-back-view {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 24px;
+  border: 1px solid rgba(0, 65, 103, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.modal-back-view[hidden] {
+  display: none !important;
+}
+
+.modal-back-photo {
+  width: min(100%, 160px);
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 22px;
+  border: 1px solid rgba(0, 65, 103, 0.08);
+  box-shadow: 0 16px 28px -24px rgba(0, 44, 72, 0.42);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.modal-back-caption {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-strong);
 }
 
 .modal-body {
@@ -1035,6 +1103,14 @@ nav {
 .chatbot-shell.open {
   opacity: 1;
   transform: translateY(0);
+}
+
+.chatbot-shell.open {
+  pointer-events: auto;
+}
+
+.chatbot-pill,
+.chatbot-launcher {
   pointer-events: auto;
 }
 
@@ -1254,9 +1330,10 @@ nav {
 
 .chatbot-form label {
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-  padding: 0 0;
 .chatbot-profile {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1266,11 +1343,15 @@ nav {
 .chatbot-field {
   display: grid;
   gap: 6px;
+}
+
+.chatbot-composer {
+  display: grid;
   gap: 12px;
   padding: 0 18px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+}
+
+.chatbot-message-field textarea {
   min-height: 120px;
 }
 
@@ -1295,9 +1376,9 @@ nav {
 }
 
 .chatbot-secondary,
-
-.chatbot-message-field textarea {
-  min-height: 116px;
+.chatbot-submit {
+  min-width: 152px;
+  justify-content: center;
 }
 
 .chatbot-secondary:disabled,
@@ -1305,11 +1386,6 @@ nav {
   opacity: 0.56;
   cursor: not-allowed;
   pointer-events: none;
-}
-
-.chatbot-submit {
-  min-width: 152px;
-  justify-content: center;
 }
 
 footer {
@@ -1371,6 +1447,7 @@ footer {
   .hero-visual {
     justify-content: flex-start;
     max-width: 380px;
+    margin-left: 0;
   }
 }
 
@@ -1472,6 +1549,10 @@ footer {
   .modal-box {
     grid-template-columns: 1fr;
     max-width: min(680px, calc(100vw - 24px));
+  }
+
+  .modal-media-stack {
+    padding: 18px;
   }
 
   .modal-img {

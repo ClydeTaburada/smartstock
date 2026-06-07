@@ -250,8 +250,14 @@ function smartstock_bootstrap(PDO $db) {
     $db->exec("ALTER TABLE users MODIFY role ENUM('Super Admin','Admin','Supervisor','Staff','Viewer','Branch Admin') NOT NULL DEFAULT 'Staff'");
     $db->exec("UPDATE users SET role = 'Supervisor' WHERE role = 'Branch Admin'");
     $db->exec("ALTER TABLE users MODIFY role ENUM('Super Admin','Admin','Supervisor','Staff','Viewer') NOT NULL DEFAULT 'Staff'");
+    if (!column_exists($db, 'phones', 'series')) {
+        $db->exec("ALTER TABLE phones ADD COLUMN series VARCHAR(120) DEFAULT NULL AFTER model");
+    }
     if (!column_exists($db, 'phones', 'supplier')) {
         $db->exec("ALTER TABLE phones ADD COLUMN supplier VARCHAR(150) DEFAULT NULL AFTER purchase_price");
+    }
+    if (!column_exists($db, 'phones', 'operating_system')) {
+        $db->exec("ALTER TABLE phones ADD COLUMN operating_system VARCHAR(80) DEFAULT NULL AFTER color");
     }
     if (!column_exists($db, 'phones', 'last_moved_at')) {
         $db->exec("ALTER TABLE phones ADD COLUMN last_moved_at DATETIME DEFAULT NULL AFTER is_listed");
@@ -259,6 +265,11 @@ function smartstock_bootstrap(PDO $db) {
     if (!column_exists($db, 'phones', 'image_url')) {
         $db->exec("ALTER TABLE phones ADD COLUMN image_url VARCHAR(255) DEFAULT NULL AFTER emoji");
     }
+    if (!column_exists($db, 'phones', 'back_image_url')) {
+        $db->exec("ALTER TABLE phones ADD COLUMN back_image_url VARCHAR(255) DEFAULT NULL AFTER image_url");
+    }
+    $db->exec("UPDATE phones SET series = TRIM(SUBSTRING_INDEX(model, ' ', 1)) WHERE (series IS NULL OR series = '') AND model IS NOT NULL AND model <> ''");
+    $db->exec("UPDATE phones SET operating_system = CASE WHEN LOWER(brand) = 'apple' THEN 'iOS' ELSE 'Android' END WHERE operating_system IS NULL OR operating_system = ''");
 
     $db->exec(
         "CREATE TABLE IF NOT EXISTS stock_transfers (
@@ -334,13 +345,32 @@ function smartstock_bootstrap(PDO $db) {
             starts_at DATETIME NOT NULL,
             ends_at DATETIME NOT NULL,
             is_active TINYINT(1) NOT NULL DEFAULT 1,
+            approval_status ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Approved',
+            approval_notes VARCHAR(255) DEFAULT NULL,
+            approved_by INT DEFAULT NULL,
+            approved_at DATETIME DEFAULT NULL,
             created_by INT DEFAULT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_flash_sale_phone FOREIGN KEY (phone_id) REFERENCES phones(id) ON DELETE CASCADE,
             CONSTRAINT fk_flash_sale_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+            CONSTRAINT fk_flash_sale_approved_by FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
             CONSTRAINT fk_flash_sale_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+
+    if (!column_exists($db, 'flash_sales', 'approval_status')) {
+        $db->exec("ALTER TABLE flash_sales ADD COLUMN approval_status ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Approved' AFTER is_active");
+    }
+    if (!column_exists($db, 'flash_sales', 'approval_notes')) {
+        $db->exec("ALTER TABLE flash_sales ADD COLUMN approval_notes VARCHAR(255) DEFAULT NULL AFTER approval_status");
+    }
+    if (!column_exists($db, 'flash_sales', 'approved_by')) {
+        $db->exec("ALTER TABLE flash_sales ADD COLUMN approved_by INT DEFAULT NULL AFTER approval_notes");
+    }
+    if (!column_exists($db, 'flash_sales', 'approved_at')) {
+        $db->exec("ALTER TABLE flash_sales ADD COLUMN approved_at DATETIME DEFAULT NULL AFTER approved_by");
+    }
+    $db->exec("UPDATE flash_sales SET approval_status = 'Approved' WHERE approval_status IS NULL OR approval_status = ''");
 
     $db->exec(
         "CREATE TABLE IF NOT EXISTS inquiries (
@@ -406,8 +436,11 @@ function smartstock_bootstrap(PDO $db) {
             p.imei,
             p.brand,
             p.model,
+                p.series,
             p.storage,
             p.ram,
+                p.color,
+                p.operating_system,
             p.battery,
             p.`condition` AS device_condition,
             p.selling_price,
@@ -415,6 +448,7 @@ function smartstock_bootstrap(PDO $db) {
             p.supplier,
             p.stock,
             p.image_url,
+                p.back_image_url,
             p.created_at AS date_added,
             p.last_moved_at AS last_transfer_at,
             p.is_listed

@@ -12,9 +12,11 @@ ensure_branch_assigned($user);
 
 $brand          = trim($_POST['brand'] ?? '');
 $model          = trim($_POST['model'] ?? '');
+$series         = trim($_POST['series'] ?? '');
 $storage        = $_POST['storage'] ?? '';
 $ram            = $_POST['ram'] ?? null;
 $color          = trim($_POST['color'] ?? '');
+$operatingSystem = trim($_POST['operating_system'] ?? '');
 $condition      = $_POST['condition'] ?? 'Good';
 $battery        = (int)($_POST['battery'] ?? 100);
 $selling_price  = (float)($_POST['selling_price'] ?? 0);
@@ -27,6 +29,7 @@ $serial         = trim($_POST['serial_number'] ?? '');
 $accessories    = $_POST['accessories'] ?? 'Unit only';
 $notes          = trim($_POST['notes'] ?? '');
 $uploadedImage  = $_FILES['image_file'] ?? null;
+$uploadedBackImage = $_FILES['back_image_file'] ?? null;
 
 if ($brand === '' || $model === '' || $selling_price <= 0 || $branch_id <= 0) {
     flash_set($flashKey, 'Brand, model, price, and branch are required.');
@@ -37,6 +40,12 @@ if (!in_array($condition, ['Excellent','Good','Fair','Poor'], true)) {
 }
 if ($battery < 0) $battery = 0;
 if ($battery > 100) $battery = 100;
+if ($series === '') {
+    $series = trim((string)strtok($model, ' '));
+}
+if ($operatingSystem === '') {
+    $operatingSystem = strcasecmp($brand, 'Apple') === 0 ? 'iOS' : 'Android';
+}
 
 $bstmt = $db->prepare("SELECT id, name, status FROM branches WHERE id = ?");
 $bstmt->execute([$branch_id]);
@@ -53,24 +62,26 @@ if (($branch['status'] ?? 'Inactive') !== 'Active') {
 
 $imagePath = null;
 $savedImageAbsolutePath = null;
+$backImagePath = null;
+$savedBackImageAbsolutePath = null;
 
-if ($uploadedImage && (int)($uploadedImage['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-    if ((int)$uploadedImage['error'] !== UPLOAD_ERR_OK) {
-        flash_set($flashKey, 'Product photo upload failed. Please try again.');
-        redirect($back);
+$storeUploadedImage = static function (?array $uploadedFile, string $prefix): array {
+    if (!$uploadedFile || (int)($uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return [null, null];
     }
-
-    if ((int)($uploadedImage['size'] ?? 0) > 5 * 1024 * 1024) {
-        flash_set($flashKey, 'Product photo must be 5MB or smaller.');
-        redirect($back);
+    if ((int)$uploadedFile['error'] !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Image upload failed. Please try again.');
+    }
+    if ((int)($uploadedFile['size'] ?? 0) > 5 * 1024 * 1024) {
+        throw new RuntimeException('Uploaded image must be 5MB or smaller.');
     }
 
     $mimeType = null;
     if (class_exists('finfo')) {
         $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->file($uploadedImage['tmp_name']);
+        $mimeType = $finfo->file($uploadedFile['tmp_name']);
     } elseif (function_exists('mime_content_type')) {
-        $mimeType = mime_content_type($uploadedImage['tmp_name']);
+        $mimeType = mime_content_type($uploadedFile['tmp_name']);
     }
 
     $allowedMimeTypes = [
@@ -81,14 +92,12 @@ if ($uploadedImage && (int)($uploadedImage['error'] ?? UPLOAD_ERR_NO_FILE) !== U
     ];
 
     if (!is_string($mimeType) || !isset($allowedMimeTypes[$mimeType])) {
-        flash_set($flashKey, 'Product photo must be a JPG, PNG, GIF, or WEBP image.');
-        redirect($back);
+        throw new RuntimeException('Images must be JPG, PNG, GIF, or WEBP files.');
     }
 
     $uploadDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'device-images';
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
-        flash_set($flashKey, 'Could not create the product photo folder.');
-        redirect($back);
+        throw new RuntimeException('Could not create the device image folder.');
     }
 
     try {
@@ -97,26 +106,39 @@ if ($uploadedImage && (int)($uploadedImage['error'] ?? UPLOAD_ERR_NO_FILE) !== U
         $uniqueSuffix = str_replace('.', '', uniqid('', true));
     }
 
-    $fileName = 'device-' . date('YmdHis') . '-' . $uniqueSuffix . '.' . $allowedMimeTypes[$mimeType];
-    $savedImageAbsolutePath = $uploadDir . DIRECTORY_SEPARATOR . $fileName;
+    $fileName = $prefix . '-' . date('YmdHis') . '-' . $uniqueSuffix . '.' . $allowedMimeTypes[$mimeType];
+    $absolutePath = $uploadDir . DIRECTORY_SEPARATOR . $fileName;
 
-    if (!move_uploaded_file($uploadedImage['tmp_name'], $savedImageAbsolutePath)) {
-        flash_set($flashKey, 'Could not save the uploaded product photo.');
-        redirect($back);
+    if (!move_uploaded_file($uploadedFile['tmp_name'], $absolutePath)) {
+        throw new RuntimeException('Could not save the uploaded image.');
     }
 
-    $imagePath = 'uploads/device-images/' . $fileName;
+    return ['uploads/device-images/' . $fileName, $absolutePath];
+};
+
+try {
+    [$imagePath, $savedImageAbsolutePath] = $storeUploadedImage($uploadedImage, 'device-front');
+    [$backImagePath, $savedBackImageAbsolutePath] = $storeUploadedImage($uploadedBackImage, 'device-back');
+} catch (RuntimeException $e) {
+    if ($savedImageAbsolutePath && is_file($savedImageAbsolutePath)) {
+        @unlink($savedImageAbsolutePath);
+    }
+    if ($savedBackImageAbsolutePath && is_file($savedBackImageAbsolutePath)) {
+        @unlink($savedBackImageAbsolutePath);
+    }
+    flash_set($flashKey, $e->getMessage());
+    redirect($back);
 }
 
 try {
     $stmt = $db->prepare("
-        INSERT INTO phones (brand, model, storage, ram, color, `condition`, battery, selling_price, purchase_price, supplier, stock, branch_id, imei, serial_number, accessories, notes, image_url, is_listed, last_moved_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
+        INSERT INTO phones (brand, model, series, storage, ram, color, operating_system, `condition`, battery, selling_price, purchase_price, supplier, stock, branch_id, imei, serial_number, accessories, notes, image_url, back_image_url, is_listed, last_moved_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
     ");
     $stmt->execute([
-        $brand, $model, $storage, $ram, $color ?: null, $condition, $battery,
-        $selling_price, $purchase_price, $supplier ?: null, $stock, $branch_id,
-        $imei ?: null, $serial ?: null, $accessories, $notes ?: null, $imagePath,
+        $brand, $model, $series ?: null, $storage, $ram, $color ?: null, $operatingSystem ?: null,
+        $condition, $battery, $selling_price, $purchase_price, $supplier ?: null, $stock, $branch_id,
+        $imei ?: null, $serial ?: null, $accessories, $notes ?: null, $imagePath, $backImagePath,
     ]);
 
     $phoneId = (int)$db->lastInsertId();
@@ -136,6 +158,9 @@ try {
 } catch (Throwable $e) {
     if ($savedImageAbsolutePath && is_file($savedImageAbsolutePath)) {
         @unlink($savedImageAbsolutePath);
+    }
+    if ($savedBackImageAbsolutePath && is_file($savedBackImageAbsolutePath)) {
+        @unlink($savedBackImageAbsolutePath);
     }
     flash_set($flashKey, 'Could not add device: ' . $e->getMessage());
     redirect($back);

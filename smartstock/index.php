@@ -73,18 +73,25 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
   $flashSale = $flashSaleMap[(int)$p['id']] ?? null;
     return [
         'id'=>(int)$p['id'],'brand'=>$p['brand'],'model'=>$p['model'],
+        'series'=>$p['series'] ?? '',
         'storage'=>$p['storage'],'ram'=>$p['ram']??'','color'=>$p['color']??'',
+        'os'=>$p['operating_system'] ?? '',
         'cond'=>$p['condition'],'batt'=>(int)$p['battery'],
         'price'=>(float)$p['selling_price'],
+        'stock'=>(int)($p['stock'] ?? 0),
     'branch_id'=>(int)($p['branch_id'] ?? 0),
         'branch'=>str_replace('RF Chein - ', '', $p['branch_name'] ?? 'Main Branch'),
         'accessories'=>$p['accessories']??'Unit only','imei'=>$p['imei']??'',
     'notes'=>$p['notes']??'','emoji'=>$p['emoji']?:'📱',
     'image'=>$p['image_url'] ?? '',
+    'image_back'=>$p['back_image_url'] ?? '',
     'flash_price'=>$flashSale ? (float)$flashSale['sale_price'] : null,
     'flash_label'=>$flashSale['promo_label'] ?? '',
     'flash_title'=>$flashSale['title'] ?? '',
     'flash_until'=>$flashSale['ends_at'] ?? '',
+    'discount_pct'=>$flashSale && (float)$p['selling_price'] > 0
+      ? round((((float)$p['selling_price'] - (float)$flashSale['sale_price']) / (float)$p['selling_price']) * 100, 1)
+      : null,
     ];
 }, $phones);
 ?>
@@ -434,11 +441,13 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
   </div>
   <div class="hero-visual">
     <?php if ($featuredFlash): ?>
+    <?php $featuredFlashDiscount = (float)$featuredFlash['regular_price'] > 0 ? round((((float)$featuredFlash['regular_price'] - (float)$featuredFlash['sale_price']) / (float)$featuredFlash['regular_price']) * 100) : 0; ?>
     <div class="deal-card">
       <div class="deal-tag">⚡ <?= e($featuredFlash['promo_label']) ?></div>
       <div class="deal-img"><?php if (!empty($featuredFlash['image_url'])): ?><img src="<?= e($featuredFlash['image_url']) ?>" alt="<?= e($featuredFlash['brand'].' '.$featuredFlash['model']) ?>"><?php else: ?><?= e($featuredFlash['emoji'] ?: '📱') ?><?php endif; ?></div>
       <div class="deal-name"><?= e($featuredFlash['brand'].' '.$featuredFlash['model']) ?></div>
-      <div class="deal-spec"><?= e($featuredFlash['storage']) ?> · <?= e($featuredFlash['ram'] ?: '—') ?> · <?= e($featuredFlash['condition']) ?></div>
+      <div class="deal-spec"><?= e($featuredFlash['series'] ?: strtok((string)$featuredFlash['model'], ' ')) ?> · <?= e($featuredFlash['storage']) ?> · <?= e($featuredFlash['ram'] ?: '—') ?> · <?= e($featuredFlash['condition']) ?></div>
+      <?php if ($featuredFlashDiscount > 0): ?><div class="deal-discount"><?= (int)$featuredFlashDiscount ?>% off regular price</div><?php endif; ?>
       <div class="deal-price-row">
         <div class="deal-price"><?= e(peso($featuredFlash['sale_price'])) ?></div>
         <div class="deal-price-old"><?= e(peso($featuredFlash['regular_price'])) ?></div>
@@ -486,6 +495,7 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
   </div>
   <div class="flash-deals-grid">
     <?php foreach (array_slice($liveFlashSales, 0, 6) as $flashSale): ?>
+      <?php $flashDiscountPercent = (float)$flashSale['regular_price'] > 0 ? round((((float)$flashSale['regular_price'] - (float)$flashSale['sale_price']) / (float)$flashSale['regular_price']) * 100, 1) : 0; ?>
       <div class="flash-deal-card" onclick="openModal(<?= (int)$flashSale['phone_id'] ?>)">
         <div class="flash-deal-media">
           <?php if (!empty($flashSale['image_url'])): ?>
@@ -497,6 +507,7 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
         <div class="flash-deal-body">
           <div class="flash-deal-title"><?= e($flashSale['brand'].' '.$flashSale['model']) ?></div>
           <div class="flash-deal-sub"><?= e($flashSale['title']) ?> · <?= e(str_replace('RF Chein - ', '', $flashSale['branch_name'] ?? '—')) ?></div>
+          <?php if ($flashDiscountPercent > 0): ?><div class="flash-discount-chip"><?= e(number_format($flashDiscountPercent, 1)) ?>% off</div><?php endif; ?>
           <div class="flash-deal-row">
             <div class="flash-prices">
               <div class="flash-sale-price"><?= e(peso($flashSale['sale_price'])) ?></div>
@@ -657,6 +668,8 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
     <div class="faq-item"><button class="faq-q" onclick="toggleFaq(this)">Can I reserve a unit online? <span class="faq-arrow">+</span></button><div class="faq-a">Call or message us at 0912-345-6789 to reserve. We'll hold the unit at your chosen branch for up to 24 hours so you can come test it.</div></div>
     <div class="faq-item"><button class="faq-q" onclick="toggleFaq(this)">What payment methods do you accept? <span class="faq-arrow">+</span></button><div class="faq-a">Cash, GCash, Maya, and bank transfer. Full payment at pickup — no installments at this time.</div></div>
     <div class="faq-item"><button class="faq-q" onclick="toggleFaq(this)">Do you buy used phones? <span class="faq-arrow">+</span></button><div class="faq-a">Yes — bring your phone (with charger and box if available) to any branch. We'll inspect it and offer a fair trade-in or buy-back price on the spot.</div></div>
+    <div class="faq-item"><button class="faq-q" onclick="toggleFaq(this)">What details do your product listings show? <span class="faq-arrow">+</span></button><div class="faq-a">Each listing now shows the brand, product name, product series, storage and RAM variant, color option, operating system, current price, any flash-discount price, and the discount percentage when a promo is active.</div></div>
+    <div class="faq-item"><button class="faq-q" onclick="toggleFaq(this)">Can I see front and back photos before I visit? <span class="faq-arrow">+</span></button><div class="faq-a">Yes — the product sheet includes the main device photo and an additional back view when it is available, so customers can inspect both sides before sending an inquiry.</div></div>
   </div>
 </section>
 
@@ -698,9 +711,15 @@ $jsPhones = array_map(function ($p) use ($flashSaleMap) {
 <!-- Modal -->
 <div class="modal-backdrop" id="modal" onclick="closeModal(event)">
   <div class="modal-box">
-    <div class="modal-img">
-      <img id="modal-photo" class="modal-photo" alt="Device photo">
-      <div class="modal-emoji" id="modal-emoji">📱</div>
+    <div class="modal-media-stack">
+      <div class="modal-img">
+        <img id="modal-photo" class="modal-photo" alt="Device photo">
+        <div class="modal-emoji" id="modal-emoji">📱</div>
+      </div>
+      <div class="modal-back-view" id="modal-back-view" hidden>
+        <img id="modal-photo-back" class="modal-back-photo" alt="Device back photo">
+        <div class="modal-back-caption" id="modal-back-caption">Back view</div>
+      </div>
     </div>
     <div class="modal-body">
       <div class="modal-top">
@@ -865,6 +884,12 @@ function effectivePrice(p){
   return p.flash_price || p.price;
 }
 
+function formatDiscount(value){
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  return `${numeric.toFixed(1).replace(/\.0$/, '')}% off`;
+}
+
 function setFilter(val, el){
   activeFilter = val;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -908,6 +933,7 @@ function renderPhones(){
         <div class="card-brand">${esc(p.brand)}</div>
         <div class="card-name">${esc(p.model)}</div>
         <div class="card-specs">
+          ${p.series ? `<span class="spec-tag">${esc(p.series)}</span>` : ''}
           <span class="spec-tag">${esc(p.storage)}</span>
           ${p.ram?`<span class="spec-tag">${esc(p.ram)} RAM</span>`:''}
           ${p.color?`<span class="spec-tag">${esc(p.color)}</span>`:''}
@@ -916,6 +942,7 @@ function renderPhones(){
           <div>
             <div class="card-price">₱${effectivePrice(p).toLocaleString()}</div>
             ${p.flash_price ? `<div class="card-price-old">₱${p.price.toLocaleString()}</div>` : ''}
+            ${p.flash_price && p.discount_pct ? `<div class="card-discount">${esc(formatDiscount(p.discount_pct))}</div>` : ''}
             <div class="card-batt">🔋 ${p.batt}% battery</div>
           </div>
           <button class="inquire-btn" onclick="event.stopPropagation();openModal(${p.id})">View details</button>
@@ -928,6 +955,9 @@ function openModal(id){
   if (!p) return;
   activeModalPhoneId = id;
   const modalPhoto = document.getElementById('modal-photo');
+  const modalPhotoBack = document.getElementById('modal-photo-back');
+  const modalBackView = document.getElementById('modal-back-view');
+  const modalBackCaption = document.getElementById('modal-back-caption');
   const modalEmoji = document.getElementById('modal-emoji');
   if (p.image) {
     modalPhoto.src = p.image;
@@ -939,24 +969,42 @@ function openModal(id){
     modalEmoji.style.display = 'flex';
     modalEmoji.textContent = p.emoji;
   }
+  if (modalBackView && modalPhotoBack) {
+    const secondaryPhoto = p.image_back || p.image;
+    if (secondaryPhoto) {
+      modalPhotoBack.src = secondaryPhoto;
+      modalBackView.hidden = false;
+      if (modalBackCaption) modalBackCaption.textContent = p.image_back ? 'Back view' : 'Additional view';
+    } else {
+      modalPhotoBack.removeAttribute('src');
+      modalBackView.hidden = true;
+    }
+  }
   document.getElementById('modal-brand').textContent = p.brand;
   document.getElementById('modal-name').textContent = p.model;
-  document.getElementById('modal-summary').textContent = [p.storage, p.ram ? `${p.ram} RAM` : '', p.color || ''].filter(Boolean).join(' · ');
+  document.getElementById('modal-summary').textContent = [p.series || '', p.storage, p.ram ? `${p.ram} RAM` : '', p.color || '', p.os || ''].filter(Boolean).join(' · ');
+  const discountText = formatDiscount(p.discount_pct);
   document.getElementById('modal-highlights').innerHTML = [
     p.flash_price ? {label:'Promo', value:p.flash_label || 'Flash Sale', tone:'accent'} : null,
+    p.flash_price && discountText ? {label:'Discount', value:discountText, tone:'accent'} : null,
     {label:'Branch', value:p.branch, tone:'secondary'},
     {label:'Condition', value:p.cond, tone:getCondClass(p.cond).replace('cond-','')},
     {label:'Battery', value:`${p.batt}%`, tone:'neutral'},
   ].filter(Boolean).map(chip => `<span class="modal-chip ${chip.tone}"><strong>${esc(chip.label)}</strong>${esc(chip.value)}</span>`).join('');
   document.getElementById('modal-price-label').textContent = p.flash_price ? 'Flash deal price' : 'Selling price';
   document.getElementById('modal-price').textContent = '₱' + effectivePrice(p).toLocaleString();
-  document.getElementById('modal-price-old').textContent = p.flash_price ? 'Regular price ₱' + p.price.toLocaleString() : '';
+  document.getElementById('modal-price-old').textContent = p.flash_price ? `Regular price ₱${p.price.toLocaleString()}${discountText ? ' · ' + discountText : ''}` : '';
   document.getElementById('modal-specs').innerHTML = [
+    {label:'Brand',val:p.brand},
+    {label:'Product',val:p.model},
+    {label:'Series',val:p.series || p.brand},
     {label:'Storage',val:p.storage},
     ...(p.ram ? [{label:'RAM',val:p.ram}] : []),
+    ...(p.os ? [{label:'Operating system',val:p.os}] : []),
     {label:'Battery health',val:p.batt+'%'},
     {label:'Condition',val:p.cond},
     ...(p.color ? [{label:'Color',val:p.color}] : []),
+    {label:'Stock available',val:String(p.stock)},
     {label:'Accessories',val:p.accessories},
     {label:'Branch',val:p.branch},
     ...(p.flash_until ? [{label:'Promo ends',val:new Date(p.flash_until).toLocaleString()}] : []),

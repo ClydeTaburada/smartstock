@@ -247,8 +247,11 @@ ALTER TABLE `branches`
   ADD COLUMN `email` varchar(150) DEFAULT NULL AFTER `phone`;
 
 ALTER TABLE `phones`
+  ADD COLUMN `series` varchar(120) DEFAULT NULL AFTER `model`,
+  ADD COLUMN `operating_system` varchar(80) DEFAULT NULL AFTER `color`,
   ADD COLUMN `supplier` varchar(150) DEFAULT NULL AFTER `purchase_price`,
   ADD COLUMN `image_url` varchar(255) DEFAULT NULL AFTER `emoji`,
+  ADD COLUMN `back_image_url` varchar(255) DEFAULT NULL AFTER `image_url`,
   ADD COLUMN `last_moved_at` datetime DEFAULT NULL AFTER `is_listed`;
 
 UPDATE `branches`
@@ -340,15 +343,21 @@ CREATE TABLE `flash_sales` (
   `starts_at` datetime NOT NULL,
   `ends_at` datetime NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `approval_status` enum('Pending','Approved','Rejected') NOT NULL DEFAULT 'Approved',
+  `approval_notes` varchar(255) DEFAULT NULL,
+  `approved_by` int(11) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
   `created_by` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_flash_sale_branch_window` (`branch_id`,`is_active`,`starts_at`,`ends_at`),
   KEY `fk_flash_sale_phone` (`phone_id`),
   KEY `fk_flash_sale_user` (`created_by`),
+  KEY `fk_flash_sale_approved_by` (`approved_by`),
   CONSTRAINT `fk_flash_sale_phone` FOREIGN KEY (`phone_id`) REFERENCES `phones` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_flash_sale_branch` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_flash_sale_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_flash_sale_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_flash_sale_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `inquiries` (
@@ -398,14 +407,18 @@ SELECT
   `p`.`imei` AS `imei`,
   `p`.`brand` AS `brand`,
   `p`.`model` AS `model`,
+  `p`.`series` AS `series`,
   `p`.`storage` AS `storage`,
   `p`.`ram` AS `ram`,
+  `p`.`color` AS `color`,
+  `p`.`operating_system` AS `operating_system`,
   `p`.`battery` AS `battery`,
   `p`.`condition` AS `device_condition`,
   `p`.`selling_price` AS `selling_price`,
   `p`.`purchase_price` AS `purchase_price`,
   `p`.`supplier` AS `supplier`,
   `p`.`image_url` AS `image_url`,
+  `p`.`back_image_url` AS `back_image_url`,
   `p`.`stock` AS `stock`,
   `p`.`created_at` AS `date_added`,
   `p`.`last_moved_at` AS `last_transfer_at`,

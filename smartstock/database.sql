@@ -46,9 +46,11 @@ CREATE TABLE phones (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     brand           VARCHAR(60)  NOT NULL,
     model           VARCHAR(120) NOT NULL,
+    series          VARCHAR(120) DEFAULT NULL,
     storage         VARCHAR(20)  NOT NULL,
     ram             VARCHAR(20)  DEFAULT NULL,
     color           VARCHAR(60)  DEFAULT NULL,
+    operating_system VARCHAR(80) DEFAULT NULL,
     `condition`     ENUM('Excellent','Good','Fair','Poor') NOT NULL DEFAULT 'Good',
     battery         INT DEFAULT 100,
     selling_price   DECIMAL(10,2) NOT NULL,
@@ -123,8 +125,11 @@ ALTER TABLE branches
     ADD COLUMN email VARCHAR(150) DEFAULT NULL AFTER phone;
 
 ALTER TABLE phones
+    ADD COLUMN series VARCHAR(120) DEFAULT NULL AFTER model,
     ADD COLUMN supplier VARCHAR(150) DEFAULT NULL AFTER purchase_price,
+    ADD COLUMN operating_system VARCHAR(80) DEFAULT NULL AFTER color,
     ADD COLUMN image_url VARCHAR(255) DEFAULT NULL AFTER emoji,
+    ADD COLUMN back_image_url VARCHAR(255) DEFAULT NULL AFTER image_url,
     ADD COLUMN last_moved_at DATETIME DEFAULT NULL AFTER is_listed;
 
 UPDATE branches
@@ -205,11 +210,16 @@ CREATE TABLE flash_sales (
     starts_at       DATETIME NOT NULL,
     ends_at         DATETIME NOT NULL,
     is_active       TINYINT(1) NOT NULL DEFAULT 1,
+    approval_status ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Approved',
+    approval_notes  VARCHAR(255) DEFAULT NULL,
+    approved_by     INT DEFAULT NULL,
+    approved_at     DATETIME DEFAULT NULL,
     created_by      INT DEFAULT NULL,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_flash_sale_branch_window (branch_id, is_active, starts_at, ends_at),
     CONSTRAINT fk_flash_sale_phone FOREIGN KEY (phone_id) REFERENCES phones(id) ON DELETE CASCADE,
     CONSTRAINT fk_flash_sale_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_flash_sale_approved_by FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_flash_sale_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
