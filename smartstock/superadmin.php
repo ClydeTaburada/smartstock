@@ -171,6 +171,14 @@ $branchRevenuePeriods = $fetchAllRows($db, "
   " . $branchRevenuePeriodSql . "
   ORDER BY b.name ASC
 ", $selectedBranchId > 0 ? [$selectedBranchId] : []);
+$selectedBranchPerformance = null;
+foreach ($branchPerformance as $branchPerformanceItem) {
+  if ((int)$branchPerformanceItem['id'] === $selectedBranchId) {
+    $selectedBranchPerformance = $branchPerformanceItem;
+    break;
+  }
+}
+$selectedBranchRevenuePeriods = $selectedBranchId > 0 ? ($branchRevenuePeriods[0] ?? null) : null;
 
 $transferParams = [];
 $transferFilterSql = '';
@@ -212,6 +220,8 @@ $movementMonitor = $fetchAllRows($db, "
   ORDER BY sold_30d DESC, p.stock ASC, p.brand ASC, p.model ASC
   LIMIT 12
 ", $branchPhoneParams);
+$selectedBranchTopMovers = $selectedBranchId > 0 ? array_slice($movementMonitor, 0, 4) : [];
+$selectedBranchPendingTransfers = $selectedBranchId > 0 ? ($transferStatusCounts['Pending'] ?? 0) : 0;
 
 // --- Decision Support System --------------------------------------------------
 $dssWindow = 30; // days
@@ -576,11 +586,17 @@ $flash = flash_get('superadmin');
   .av-purple{background:#EEEDFE;color:#3C3489}.av-teal{background:#E1F5EE;color:#0F6E56}.av-blue{background:#E6F1FB;color:#0C447C}
   .user-cell{display:flex;align-items:center;gap:8px}
   .branch-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+  .branch-card.is-focused{border-color:#B6E4D3;box-shadow:0 0 0 1px #B6E4D3 inset}
+  .branch-card-header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+  .branch-link{display:block;color:inherit;text-decoration:none;flex:1;min-width:0}
+  .branch-link:hover .branch-name{text-decoration:underline}
   .branch-info{display:flex;align-items:center;gap:12px}
   .branch-icon{width:36px;height:36px;border-radius:var(--border-radius-md);background:#EEEDFE;display:flex;align-items:center;justify-content:center;color:#534AB7;font-size:18px}
   .branch-name{font-weight:500;font-size:14px}
   .branch-meta{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
   .branch-actions{display:flex;gap:6px;align-items:center}
+  .detail-stack{display:grid;gap:8px}
+  .detail-line{font-size:13px;color:var(--color-text-secondary);line-height:1.6}
   .flash{margin:0 20px 12px;padding:10px 14px;background:#EEEDFE;color:#3C3489;border-radius:var(--border-radius-md);font-size:13px;border:0.5px solid #D6D1F9}
   /* Decision Support */
   .dss-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
@@ -671,24 +687,15 @@ $flash = flash_get('superadmin');
     <div class="role-badge"><i class="ti <?= $isSystemAdmin ? 'ti-shield-check' : 'ti-briefcase' ?>" style="font-size:11px"></i> <?= e($roleName) ?></div>
 
     <div class="nav-section">Workspace</div>
-    <div class="nav-item active" data-page="overview" onclick="nav('overview',this)"><i class="ti ti-eye"></i> Dashboard</div>
-    <div class="nav-item" data-page="inventory" onclick="nav('inventory',this)"><i class="ti ti-package"></i> Inventory</div>
-    <div class="nav-item" data-page="sales" onclick="nav('sales',this)"><i class="ti ti-receipt-2"></i> Sales</div>
-    <div class="nav-item" data-page="transfers" onclick="nav('transfers',this)"><i class="ti ti-arrows-transfer-up-down"></i> Transfers</div>
-    <a class="nav-item" href="flash_sales.php"><i class="ti ti-bolt"></i> Flash sales<?= $flashApprovalPendingCount > 0 ? ' · ' . (int)$flashApprovalPendingCount . ' pending' : '' ?></a>
-    <div class="nav-item" data-page="analytics" onclick="nav('analytics',this)"><i class="ti ti-chart-bar"></i> Analytics</div>
-    <div class="nav-item" data-page="decisions" onclick="nav('decisions',this)"><i class="ti ti-brain"></i> Decision support</div>
-    <div class="nav-item" data-page="devices" onclick="nav('devices',this)"><i class="ti ti-device-mobile-plus"></i> Device input</div>
-    <a class="nav-item" href="insights.php"><i class="ti ti-trophy"></i> Branch ranking</a>
     <?php if ($hasExecutiveControl): ?>
-      <div class="nav-item" data-page="branches" onclick="nav('branches',this)"><i class="ti ti-building-store"></i> Branches</div>
+      <div class="nav-item active" data-page="branches" onclick="nav('branches',this)"><i class="ti ti-building-store"></i> Branches</div>
       <div class="nav-item" data-page="users" onclick="nav('users',this)"><i class="ti ti-users"></i> Users</div>
     <?php endif; ?>
 
     <?php if ($hasExecutiveControl): ?>
       <div class="nav-section">System</div>
       <div class="nav-item" data-page="roles" onclick="nav('roles',this)"><i class="ti ti-key"></i> Roles &amp; access</div>
-      <div class="nav-item" data-page="logs" onclick="nav('logs',this)"><i class="ti ti-clipboard-list"></i> Activity logs</div>
+      <div class="nav-item" data-page="logs" onclick="nav('logs',this)"><i class="ti ti-clipboard-list"></i> Activity</div>
     <?php endif; ?>
 
     <a class="nav-item" href="logout.php" style="margin-top:20px;color:#ff8a8a"><i class="ti ti-logout"></i> Sign out</a>
@@ -696,7 +703,7 @@ $flash = flash_get('superadmin');
 
   <div class="main">
     <div class="topbar">
-      <h1 id="page-title">Dashboard</h1>
+      <h1 id="page-title">Branches</h1>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div class="branch-switcher">
           <form method="get">
@@ -710,10 +717,6 @@ $flash = flash_get('superadmin');
           </form>
         </div>
         <span class="badge-live"><i class="ti ti-circle-dot" style="font-size:10px"></i> Live</span>
-        <a class="notif-link <?= $openInquiryCount > 0 ? 'has-items' : '' ?>" href="<?= e($inquiriesHref) ?>" title="<?= $openInquiryCount > 0 ? e($openInquiryCount . ' open inquiries') : 'No open inquiries' ?>">
-          <i class="ti ti-bell" style="font-size:18px"></i>
-          <?php if ($openInquiryCount > 0): ?><span class="notif-count"><?= (int)$openInquiryCount ?></span><?php endif; ?>
-        </a>
         <span class="scope-pill"><i class="ti ti-building-store"></i> <?= e($selectedBranchName) ?></span>
         <div style="font-size:13px;color:var(--color-text-secondary)"><strong><?= e($user['name']) ?></strong></div>
         <div class="avatar av-purple"><?= e(strtoupper(substr($user['name'], 0, 2))) ?></div>
@@ -724,13 +727,6 @@ $flash = flash_get('superadmin');
     <?php if ($dashFlash): ?><div class="flash" style="background:#E1F5EE;color:#0F6E56;border-color:#B6E4D3"><?= e($dashFlash) ?></div><?php endif; ?>
 
     <div class="content">
-    <?php if ($newInquiryCount > 0): ?>
-      <div class="flash"><?= (int)$newInquiryCount ?> new <?= $newInquiryCount === 1 ? 'inquiry' : 'inquiries' ?> need attention in the current branch scope.</div>
-    <?php endif; ?>
-    <?php if ($flashApprovalPendingCount > 0): ?>
-      <div class="flash" style="background:#FFF7D6;color:#8A5A12;border-color:#F3D68A"><?= (int)$flashApprovalPendingCount ?> supervisor flash sale <?= $flashApprovalPendingCount === 1 ? 'request is' : 'requests are' ?> waiting for CEO/Admin approval. <a href="flash_sales.php" style="color:inherit;font-weight:700">Review flash sales</a></div>
-    <?php endif; ?>
-
       <!-- DASHBOARD -->
       <div class="page" id="pg-dashboard">
         <div class="metrics">
@@ -1269,7 +1265,7 @@ $flash = flash_get('superadmin');
       </div>
 
       <!-- OVERVIEW -->
-      <div class="page active" id="pg-overview">
+      <div class="page" id="pg-overview">
         <div class="grid2">
           <div class="card">
             <div class="card-title"><div class="card-title-left"><i class="ti ti-trophy"></i> Enterprise highlights</div></div>
@@ -1426,7 +1422,76 @@ $flash = flash_get('superadmin');
       </div>
 
       <!-- BRANCHES -->
-      <div class="page" id="pg-branches">
+      <div class="page active" id="pg-branches">
+        <?php if ($selectedBranch && $selectedBranchPerformance): ?>
+          <div class="card">
+            <div class="card-title">
+              <div class="card-title-left"><i class="ti ti-building-store"></i> <?= e($selectedBranchName) ?> details</div>
+              <a class="btn btn-sm" href="superadmin.php#branches"><i class="ti ti-layout-grid"></i> Show all branches</a>
+            </div>
+            <div class="summary-lead" style="margin-bottom:12px"><?= e($selectedBranchName) ?> is currently ranked #<?= (int)($branchRankMap[$selectedBranchId] ?? 0) ?> with <?= e(peso($selectedBranchPerformance['revenue'])) ?> in completed revenue, <?= (int)$selectedBranchPerformance['sales_count'] ?> completed sales, and <?= (int)$selectedBranchPerformance['units_count'] ?> active units.</div>
+            <div class="grid2">
+              <div>
+                <div class="card-title" style="margin-bottom:10px"><div class="card-title-left"><i class="ti ti-id-badge-2"></i> Branch overview</div></div>
+                <div class="detail-stack">
+                  <div class="detail-line"><strong>Address:</strong> <?= e($selectedBranch['address']) ?></div>
+                  <div class="detail-line"><strong>Manager:</strong> <?= e($selectedBranch['manager'] ?: '—') ?></div>
+                  <div class="detail-line"><strong>Phone:</strong> <?= e($selectedBranch['phone'] ?: '—') ?></div>
+                  <div class="detail-line"><strong>Email:</strong> <?= e($selectedBranch['email'] ?? '—') ?></div>
+                  <div class="detail-line"><strong>Status:</strong> <span class="pill <?= $selectedBranch['status'] === 'Active' ? 'pill-teal' : 'pill-amber' ?>"><?= e($selectedBranch['status']) ?></span></div>
+                </div>
+                <div class="profile-grid" style="margin-top:14px">
+                  <div class="profile-stat"><div class="profile-stat-label">Users</div><div class="profile-stat-value"><?= (int)$selectedBranch['users_count'] ?></div></div>
+                  <div class="profile-stat"><div class="profile-stat-label">Listed products</div><div class="profile-stat-value"><?= (int)$selectedBranch['devices_count'] ?></div></div>
+                  <div class="profile-stat"><div class="profile-stat-label">Units in stock</div><div class="profile-stat-value"><?= (int)$selectedBranchPerformance['units_count'] ?></div></div>
+                  <div class="profile-stat"><div class="profile-stat-label">Low-stock items</div><div class="profile-stat-value"><?= (int)$selectedBranchPerformance['low_stock_items'] ?></div></div>
+                </div>
+              </div>
+              <div>
+                <div class="card-title" style="margin-bottom:10px"><div class="card-title-left"><i class="ti ti-chart-bar"></i> Performance snapshot</div></div>
+                <table>
+                  <tbody>
+                    <tr><td>Revenue today</td><td><?= e(peso($selectedBranchRevenuePeriods['revenue_daily'] ?? 0)) ?></td></tr>
+                    <tr><td>Revenue this week</td><td><?= e(peso($selectedBranchRevenuePeriods['revenue_weekly'] ?? 0)) ?></td></tr>
+                    <tr><td>Revenue this month</td><td><?= e(peso($selectedBranchRevenuePeriods['revenue_monthly'] ?? 0)) ?></td></tr>
+                    <tr><td>Revenue this quarter</td><td><?= e(peso($selectedBranchRevenuePeriods['revenue_quarterly'] ?? 0)) ?></td></tr>
+                    <tr><td>Revenue this year</td><td><?= e(peso($selectedBranchRevenuePeriods['revenue_yearly'] ?? 0)) ?></td></tr>
+                    <tr><td>Completed sales</td><td><?= (int)$selectedBranchPerformance['sales_count'] ?></td></tr>
+                    <tr><td>Transfer requests</td><td><?= (int)$selectedBranchPerformance['transfer_count'] ?></td></tr>
+                    <tr><td>Pending transfers</td><td><?= (int)$selectedBranchPendingTransfers ?></td></tr>
+                    <tr><td>Open inquiries</td><td><?= (int)$openInquiryCount ?></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div style="margin-top:16px">
+              <div class="card-title" style="margin-bottom:10px"><div class="card-title-left"><i class="ti ti-activity-heartbeat"></i> Top moving items</div></div>
+              <table>
+                <thead><tr><th style="width:48%">Product</th><th style="width:18%">Sold 30d</th><th style="width:14%">Stock</th><th style="width:20%">Movement</th></tr></thead>
+                <tbody>
+                  <?php foreach ($selectedBranchTopMovers as $movingItem): ?>
+                    <?php
+                      $movementLabel = (int)$movingItem['sold_30d'] >= 4 ? 'Fast' : ((int)$movingItem['sold_30d'] >= 2 ? 'Active' : 'Slow');
+                      $movementClass = $movementLabel === 'Fast' ? 'pill-teal' : ($movementLabel === 'Active' ? 'pill-blue' : 'pill-amber');
+                    ?>
+                    <tr>
+                      <td><?= e(trim(implode(' · ', array_filter([$movingItem['brand'] . ' ' . $movingItem['model'], $movingItem['series'] ?? '', $movingItem['storage'] ?? '', $movingItem['color'] ?? ''])))) ?></td>
+                      <td><?= (int)$movingItem['sold_30d'] ?></td>
+                      <td><?= (int)$movingItem['stock'] ?></td>
+                      <td><span class="pill <?= $movementClass ?>"><?= e($movementLabel) ?></span></td>
+                    </tr>
+                  <?php endforeach; ?>
+                  <?php if (!$selectedBranchTopMovers): ?><tr><td colspan="4" style="text-align:center;color:var(--color-text-tertiary);padding:24px">No movement data is available for this branch yet.</td></tr><?php endif; ?>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        <?php else: ?>
+          <div class="card">
+            <div class="page-intro">Click any branch card below to load that branch's details, overview, and performance in this page.</div>
+          </div>
+        <?php endif; ?>
+
         <div class="card">
           <div class="card-title"><div class="card-title-left"><i class="ti ti-building-store"></i> Add new branch</div></div>
           <form method="post" action="actions/add_branch.php">
@@ -1443,17 +1508,24 @@ $flash = flash_get('superadmin');
         <div class="card">
           <div class="card-title"><div class="card-title-left"><i class="ti ti-list"></i> All branches</div><span style="font-size:12px;color:var(--color-text-secondary)"><?= count($branches) ?> branches</span></div>
           <?php foreach ($branches as $b): ?>
-            <div class="branch-card" style="display:block">
-              <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
-                <div class="branch-info">
-                  <div class="branch-icon"><i class="ti ti-building-store"></i></div>
-                  <div>
-                    <div class="branch-name"><?= e($b['name']) ?></div>
-                    <div class="branch-meta"><i class="ti ti-map-pin" style="font-size:12px"></i> <?= e($b['address']) ?> &nbsp;|&nbsp; <i class="ti ti-user" style="font-size:12px"></i> <?= e($b['manager'] ?: '—') ?> &nbsp;|&nbsp; <?= (int)$b['users_count'] ?> users · <?= (int)$b['devices_count'] ?> devices</div>
+            <?php
+              $branchFocusHref = 'superadmin.php?branch_id=' . (int)$b['id'] . '#branches';
+              $isFocusedBranch = $selectedBranchId === (int)$b['id'];
+            ?>
+            <div class="branch-card<?= $isFocusedBranch ? ' is-focused' : '' ?>" style="display:block">
+              <div class="branch-card-header">
+                <a class="branch-link" href="<?= e($branchFocusHref) ?>">
+                  <div class="branch-info">
+                    <div class="branch-icon"><i class="ti ti-building-store"></i></div>
+                    <div>
+                      <div class="branch-name"><?= e($b['name']) ?></div>
+                      <div class="branch-meta"><i class="ti ti-map-pin" style="font-size:12px"></i> <?= e($b['address']) ?> &nbsp;|&nbsp; <i class="ti ti-user" style="font-size:12px"></i> <?= e($b['manager'] ?: '—') ?> &nbsp;|&nbsp; <?= (int)$b['users_count'] ?> users · <?= (int)$b['devices_count'] ?> devices</div>
+                    </div>
                   </div>
-                </div>
+                </a>
                 <div class="branch-actions">
                   <span class="pill <?= $b['status']==='Active'?'pill-teal':'pill-amber' ?>"><?= e($b['status']) ?></span>
+                  <a class="btn btn-sm<?= $isFocusedBranch ? ' btn-primary' : '' ?>" href="<?= e($branchFocusHref) ?>"><i class="ti ti-chart-bar"></i> <?= $isFocusedBranch ? 'Viewing' : 'View details' ?></a>
                   <form method="post" action="actions/delete_branch.php" onsubmit="return confirm('Remove this branch?')" style="display:inline">
                     <input type="hidden" name="id" value="<?= (int)$b['id'] ?>">
                     <button class="btn btn-sm btn-danger" type="submit"><i class="ti ti-trash"></i></button>
@@ -1779,7 +1851,7 @@ function nav(page, el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('pg-'+page).classList.add('active');
-  const titles={dashboard:'Dashboard',inventory:'Inventory',sales:'Sales',transfers:'Transfers',analytics:'Analytics',decisions:'Decision support',overview:'Dashboard',branches:'Branch management',users:'User management',devices:'Device input',roles:'Roles & access',logs:'Activity logs'};
+  const titles={branches:'Branches',users:'Users',roles:'Roles & access',logs:'Activity'};
   document.getElementById('page-title').textContent=titles[page];
   window.location.hash = page;
 }
@@ -1846,7 +1918,7 @@ document.getElementById('sale-modal')?.addEventListener('click', e => {
 });
 filterTransferProducts();
 
-const initialPage = window.location.hash ? window.location.hash.slice(1) : 'overview';
+const initialPage = window.location.hash ? window.location.hash.slice(1) : 'branches';
 const initialNav = document.querySelector('.nav-item[data-page="' + initialPage + '"]');
 if (initialNav) nav(initialPage, initialNav);
 </script>
